@@ -50,6 +50,7 @@ export default async function run({ page, frame }) {
   let s = await until('free roam', (s) => s.playground === 'free-roam' && s.awake);
   check('room-only playground up', s.playground === 'free-roam' && s.awake, `${s.pieces} piece(s), ngeom ${s.ngeom}`);
   const ngeom0 = s.ngeom;
+  const rebuilds0 = s.rebuilds; // an earlier rebuild (the room colliders) must not count
 
   // Build: crumb, gate, books, finish; then move them into a line.
   await target.evaluate(async () => {
@@ -64,8 +65,8 @@ export default async function run({ page, frame }) {
     e.moveTo(books, 1.0, 0.15, 0.3);
     e.moveTo(finish, 1.4, 0);
   });
-  s = await until('pieces applied', (s) => s.pieces >= 5 && s.rebuilds >= 1 && !s.freeRoam, 30);
-  check('pieces added and physics rebuilt', s.pieces === 5 && s.rebuilds >= 1 && s.ngeom > ngeom0, `${s.pieces} pieces, ngeom ${ngeom0} -> ${s.ngeom}, ${s.rebuilds} rebuild(s); ${s.editor}`);
+  s = await until('pieces applied', (s) => s.pieces >= 5 && s.rebuilds > rebuilds0 && s.ngeom > ngeom0 && !s.freeRoam, 30);
+  check('pieces added and physics rebuilt', s.pieces === 5 && s.rebuilds > rebuilds0 && s.ngeom > ngeom0, `${s.pieces} pieces, ngeom ${ngeom0} -> ${s.ngeom}, ${s.rebuilds} rebuild(s); ${s.editor}`);
   check('course sees the new pieces', !s.freeRoam && s.crumbs === 1, `free roam ${s.freeRoam}, crumbs ${s.crumbs}, state ${s.courseState}`);
 
   // Save, share, decode.

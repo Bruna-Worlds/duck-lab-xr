@@ -158,9 +158,12 @@ async function runtime() {
     const logs = await cli(['browser', 'logs'], { count: 40 });
     const d = logs.data?.result ?? logs.data ?? logs;
     const entries = Array.isArray(d) ? d : (d.logs ?? d.entries ?? d.messages ?? []);
+    // A request cut off by the reload above is not a fault: the hidden trainer frame keeps a live
+    // connection to the trainer engine (src/ui/view-switch-system.ts), and a reload aborts it.
     const errors = entries
       .filter((l) => /error/i.test(String(l.level ?? l.type ?? '')))
-      .map((l) => String(l.text ?? l.message ?? '').slice(0, 160));
+      .map((l) => String(l.text ?? l.message ?? '').slice(0, 160))
+      .filter((text) => !/net::ERR_ABORTED/.test(text));
     check(`console ${id}`, errors.length === 0, errors.slice(0, 3).join(' | '));
     // Restart so the next playground starts clean.
     await keys([{ action: 'press', key: 'KeyR' }]);

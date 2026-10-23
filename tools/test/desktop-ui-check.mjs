@@ -74,7 +74,14 @@ try {
   };
 
   let page = await open();
-  check('the How to play card shows when Pip stands', await card(page));
+  // It waits for the loading screen to fade, which can take a couple of seconds after Pip stands.
+  const cardShown = await page
+    .waitForFunction(() => !(document.getElementById('duck-controls')?.hidden ?? true), null, { timeout: 8000 })
+    .then(
+      () => true,
+      () => false,
+    );
+  check('the How to play card shows when Pip stands', cardShown);
   await page.screenshot({ path: 'artifacts/layout/desktop-card.png' });
   await page.click('#duck-controls .go');
   check('GOT IT closes it', !(await card(page)));
