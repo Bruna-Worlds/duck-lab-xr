@@ -26,6 +26,8 @@ import { TerrainSystem } from './room/terrain-system.js';
 import { RunPanelSystem } from './run-panel.js';
 import { RobotPanelSystem } from './ui/robot-panel-system.js';
 import { OrbitCameraSystem } from './ui/orbit-camera-system.js';
+import { keepPointerDotsOnTop } from './ui/on-top.js';
+import { catchRendererTextures, flushDeferredUploads } from './render/deferred-uploads.js';
 import { ViewSwitchSystem } from './ui/view-switch-system.js';
 import { ControlsCardSystem } from './ui/controls-card-system.js';
 import { PolicyInboxSystem } from './training/policy-inbox-system.js';
@@ -135,14 +137,20 @@ if (staleHeadsetTab) {
     },
   } as typeof projectOptions;
   preferEitherDepth();
+  const takeTextures = catchRendererTextures(); // World.create builds the renderer: see src/render/deferred-uploads.ts
   World.create(document.getElementById('scene-container') as HTMLDivElement, options).then((world) => {
+    const textures = takeTextures();
+    if (textures) flushDeferredUploads(world.renderer, textures);
+    else console.warn('[render] renderer textures not caught: in a headset, new textures may never upload');
     (globalThis as { __duckBootMs?: number }).__duckBootMs = performance.now();
     if (import.meta.env.DEV && params.has('tapToEnter')) {
       // Headset testing without a hand on the controllers: the first tap on the
-      // page (an ADB tap counts as a user gesture) enters mixed reality. Over
-      // Wi-Fi the dev build can boot after the deep link's session grant expires.
-      // (A click: for touch, browsers grant the gesture on release, not on press.)
-      window.addEventListener('click', () => void world.launchXR({ sessionMode: SessionMode.ImmersiveAR }), { once: true, capture: true });
+      // page (an ADB tap counts as a user gesture) enters mixed reality, or VR
+      // with ?tapToEnter=vr (a VR session from the deep link ends at once on the
+      // Quest). Over Wi-Fi the dev build can boot after the deep link's session
+      // grant expires. (A click: for touch, browsers grant the gesture on release.)
+      const sessionMode = params.get('tapToEnter') === 'vr' ? SessionMode.ImmersiveVR : SessionMode.ImmersiveAR;
+      window.addEventListener('click', () => void world.launchXR({ sessionMode }), { once: true, capture: true });
     }
     world.registerSystem(DepthSensingSystem, {
       configData: { enableDepthTexture: true, enableOcclusion: true, useFloat32: true, blurRadius: 20 },
@@ -172,6 +180,7 @@ if (staleHeadsetTab) {
     world.registerSystem(LabLinkSystem);
     world.registerSystem(RealDuckSystem);
     world.registerSystem(RobotPanelSystem);
+    keepPointerDotsOnTop(world); // panels draw on top, so the ray's dot on them does too
     if (import.meta.env.DEV && new URLSearchParams(location.search).has('lab')) {
       const profiler = new SystemProfiler(world);
       profiler.install();
@@ -201,6 +210,7 @@ if (staleHeadsetTab) {
         views: world.getSystem(ViewSwitchSystem),
         controls: world.getSystem(ControlsCardSystem),
         orbit: world.getSystem(OrbitCameraSystem),
+        uploads: textures,
       };
     }
   });
