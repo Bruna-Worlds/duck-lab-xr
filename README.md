@@ -47,7 +47,7 @@ The duck's name is Pip.
 
 ## Play it
 
-Open **https://duck-lab-xr.vercel.app** in the browser of a Meta Quest 3 and
+Open **https://duck.bruna.world** in the browser of a Meta Quest 3 and
 press **ENTER MR** in the menu (or **ENTER VR** for the toy room). It also runs
 on a desktop browser, where W A S D walk the duck. The hosted site counts
 visits with Vercel Web Analytics, which sets no cookies.
@@ -120,7 +120,7 @@ Delete) removes it.
    scan, the terrain, the duck's state and every command that led there.
 2. **Open the trainer.** Start the trainer engine on the computer
    (`npm run lab` in this repository), then open the site there and click
-   **TRAINER** at the top (https://duck-lab-xr.vercel.app/trainer/; in
+   **TRAINER** at the top (https://duck.bruna.world/trainer/; in
    development https://localhost:8081/, where **Start the trainer** starts the
    engine for you). When the browser asks whether the site may connect to
    apps on this device, allow it: that is how the page reaches the engine.

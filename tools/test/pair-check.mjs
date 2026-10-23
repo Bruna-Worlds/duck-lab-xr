@@ -10,7 +10,7 @@
  * the headset reconnects by itself and is still on that brain.
  *
  *   node tools/test/pair-check.mjs
- *   TRAINER_SITE=https://duck-lab-xr.vercel.app/ node tools/test/pair-check.mjs
+ *   TRAINER_SITE=https://duck.bruna.world/ node tools/test/pair-check.mjs
  *
  * TRAINER_SITE takes the trainer page from another copy of the site (the
  * deployed one, say); the headset page stays on the dev server, whose test
