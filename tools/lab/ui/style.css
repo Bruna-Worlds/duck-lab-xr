@@ -687,6 +687,11 @@ a.view:hover {
   display: none;
 }
 
+.rights a {
+  color: #ffcf3f;
+  font-weight: 700;
+}
+
 .rights {
   margin: 8px 0 28px;
   text-align: center;

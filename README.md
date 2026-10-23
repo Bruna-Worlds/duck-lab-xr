@@ -49,7 +49,8 @@ The duck's name is Pip.
 
 Open **https://duck.bruna.world** in the browser of a Meta Quest 3 and
 press **ENTER MR** in the menu (or **ENTER VR** for the toy room). It also runs
-on a desktop browser, where W A S D walk the duck. The hosted site counts
+in a desktop browser, where W A S D walk the duck, and on a phone, where an
+on-screen stick does. The hosted site counts
 visits with Vercel Web Analytics, which sets no cookies.
 
 To train Pip on your room you also need the trainer engine on your computer:
@@ -74,17 +75,20 @@ certificate warning, and press **ENTER MR**.
 
 ## Playing
 
-| | Headset | Keyboard |
+| | Headset | Desktop and phone |
 | --- | --- | --- |
-| Walk and turn | left stick | W A S D or arrows |
-| Kick, roll, sit, peck | A, B, X, Y | J, K, L, I |
-| Bow | right stick click | N |
-| Restart the run | left grip | R |
+| Walk and turn | left stick | W A S D or arrows; the on-screen stick on a phone |
+| Look around | your head | drag the room (mouse or finger); the wheel or a pinch zooms |
+| Kick, roll, sit, peck | A, B, X, Y | J, K, L, I, or the menu's **MOVES** |
+| Bow | right stick click | N, or the menu |
+| Restart the run | left grip | R, or the menu's **RESTART** |
 | Autopilot (run the course) | menu, **AUTO** | P |
 | Save this moment as a test case | automatic after falls | X |
 | Menu | left stick click, or the scoreboard's MENU chip | always shown on a wide window; M or the MENU chip on a small one |
 
-The menu has the playgrounds, the autopilot, Pip cam, the course editor
+On a phone or a desktop, the scoreboard, the menu and Pip cam each fold away
+with their minimize buttons. The menu has the moves (on a phone or a
+desktop), the playgrounds, the autopilot, Pip cam, the course editor
 (**EDIT**), **CONTROLS** (the how-to-play card), pairing with the trainer and
 the real duck. In the editor, point at a piece and hold the trigger (or the
 mouse button) to slide it; the thumbstick (or Q / E) turns it and B (or
@@ -212,7 +216,8 @@ then:
 ```sh
 bash tools/test/all.sh                   # every emulator check (about 20 min)
 bash tools/test/mr.sh tools/test/terrain-check.mjs  # depth sensing and the room scan as solid ground, in emulated mixed reality
-node tools/test/layout-check.mjs         # the 2D page: no overlapping panels at 7 window sizes
+node tools/test/layout-check.mjs         # the 2D page: no overlapping panels at 13 window sizes, phones included
+node tools/test/orbit-check.mjs          # the 2D page: dragging the room turns the camera (mouse, wheel, finger)
 node tools/test/pair-check.mjs           # headset and trainer pair over WebRTC: test case up, brain down, reconnect
 node tools/test/views-check.mjs          # the desktop PLAY | TRAINER switch
 node tools/test/desktop-ui-check.mjs     # the how-to-play card and the folding menu

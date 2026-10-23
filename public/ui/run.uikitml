@@ -1,9 +1,11 @@
 <!-- Copyright 2026 BRUNA GOODS LLC. SPDX-License-Identifier: Apache-2.0 -->
 <!--
   Duck Lab XR scoreboard: title, run state, time, score, pickups, the combo
-  line and the result line. The playground picker and the toggles live in
-  menu.uikitml, the move buttons in moves.uikitml and the duck's camera in
-  robot.uikitml. Ink card, cream text, candy accents; Bebas Neue (SIL OFL,
+  line and the result line; on the 2D page also the duck's mood line, the
+  link to the open-source repository and a minimize button that folds it to
+  its header. The playground picker, the
+  toggles and (on the 2D page) the moves live in menu.uikitml, the headset's
+  move bar in moves.uikitml and the duck's camera in robot.uikitml. Ink card, cream text, candy accents; Bebas Neue (SIL OFL,
   public/fonts/BebasNeue-OFL.txt) for the big words, Nunito for the rest.
   Element ids are read by src/run-panel.ts. Keep copy in plain ASCII.
 -->
@@ -22,6 +24,16 @@
   .pill { font-family: bebas; font-size: 17px; letter-spacing: 1px; color: #0f1020; background-color: #6fb7ff; border-radius: 999px; padding-left: 14px; padding-right: 14px; padding-top: 6px; padding-bottom: 4px; }
   .menu { font-family: bebas; font-size: 14px; letter-spacing: 1px; color: #fff4dc; background-color: rgba(255, 244, 220, 0.08); border-width: 2px; border-color: rgba(255, 244, 220, 0.25); border-radius: 999px; padding-left: 12px; padding-right: 12px; padding-top: 5px; padding-bottom: 3px; cursor: pointer; }
   .menu:hover { background-color: rgba(255, 244, 220, 0.18); }
+  .side-row { flex-direction: row; gap: 6px; align-items: center; }
+  .fold { width: 26px; height: 26px; border-radius: 13px; align-items: center; justify-content: center; background-color: rgba(255, 244, 220, 0.08); border-width: 1px; border-color: rgba(255, 244, 220, 0.25); cursor: pointer; }
+  .fold:hover { background-color: rgba(255, 244, 220, 0.2); }
+  .glyph { width: 14px; height: 14px; color: #fff4dc; }
+  .body { flex-direction: column; gap: 10px; }
+  .mood-row { flex-direction: row; align-items: center; gap: 8px; }
+  .dot { width: 8px; height: 8px; border-radius: 4px; background-color: #ffcf3f; }
+  .mood { font-size: 13px; font-weight: 700; color: rgba(255, 244, 220, 0.85); }
+  .github { font-family: bebas; font-size: 15px; letter-spacing: 1px; color: #0f1020; background-color: #ffcf3f; border-radius: 999px; padding-left: 12px; padding-right: 12px; padding-top: 5px; padding-bottom: 3px; cursor: pointer; margin-top: 2px; }
+  .github:hover { background-color: #ffe07a; }
 
   .stats { flex-direction: row; gap: 10px; }
   .tile { flex-direction: column; gap: 0px; background-color: #1c1d36; border-radius: 18px; border-width: 1px; border-color: rgba(255, 244, 220, 0.1); padding-left: 14px; padding-right: 14px; padding-top: 8px; padding-bottom: 8px; width: 128px; }
@@ -39,11 +51,21 @@
     <div class="brand">
       <div class="sticker-shadow"><div class="sticker"><div class="title">DUCK LAB XR</div></div></div>
       <div id="run-subtitle" class="subtitle">Living room course</div>
+      <div id="run-github" class="github" style="display: none">OPEN SOURCE ON GITHUB</div>
     </div>
     <div class="side">
       <div id="run-state" class="pill">WALK TO START</div>
-      <div id="menu-button" class="menu" style="display: none">MENU</div>
+      <div class="side-row">
+        <div id="menu-button" class="menu" style="display: none">MENU</div>
+        <div id="run-min" class="fold" style="display: none"><Minus class="glyph"></Minus></div>
+        <div id="run-expand" class="fold" style="display: none"><ChevronDown class="glyph"></ChevronDown></div>
+      </div>
     </div>
+  </div>
+  <div id="run-body" class="body">
+  <div id="run-mood-row" class="mood-row" style="display: none">
+    <div class="dot"></div>
+    <div id="run-mood" class="mood">Waking up the duck...</div>
   </div>
   <div class="stats">
     <div class="tile">
@@ -62,4 +84,5 @@
   </div>
   <div id="run-combo" class="combo"> </div>
   <div id="run-result" class="hint">Weave the books, pass the gates, kick the ball in the goal, reach the flag.</div>
+  </div>
 </div>

@@ -20,7 +20,8 @@ const BUTTON_ID = 'controls-button';
 /** What, which keys, and a few words. */
 const ROWS: [string, string[], string][] = [
   ['Walk and turn', ['W', 'A', 'S', 'D'], 'or the arrow keys'],
-  ['Moves', ['J', 'K', 'L', 'I', 'N'], 'kick, roll, sit, peck, bow'],
+  ['Look around', ['Drag'], 'the room with the mouse; the wheel zooms'],
+  ['Moves', ['J', 'K', 'L', 'I', 'N'], 'kick, roll, sit, peck, bow (also on the menu)'],
   ['Quack', ['Q'], ''],
   ['Autopilot', ['P'], 'Pip runs the course by itself'],
   ['Restart', ['R'], 'the run, from the start'],

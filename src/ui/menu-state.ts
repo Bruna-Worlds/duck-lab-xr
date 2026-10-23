@@ -2,24 +2,31 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The desktop menu's folded state on the 2D page (its minimize button, or M;
- * the scoreboard's MENU chip brings it back), kept for the next visit.
+ * Folded panels on the 2D page, kept for the next visit: the desktop menu
+ * (its minimize button, or M; the scoreboard's MENU chip brings it back) and
+ * the scoreboard (its minimize button; the chevron unfolds it).
  */
 const MINIMIZED_KEY = 'ducklab.menuMinimized';
+const SCORE_MINIMIZED_KEY = 'ducklab.scoreMinimized';
 
-export function readMenuMinimized(): boolean {
+function readFlag(key: string): boolean {
   try {
-    return localStorage.getItem(MINIMIZED_KEY) === '1';
+    return localStorage.getItem(key) === '1';
   } catch {
     return false;
   }
 }
 
-export function writeMenuMinimized(minimized: boolean): void {
+function writeFlag(key: string, on: boolean): void {
   try {
-    if (minimized) localStorage.setItem(MINIMIZED_KEY, '1');
-    else localStorage.removeItem(MINIMIZED_KEY);
+    if (on) localStorage.setItem(key, '1');
+    else localStorage.removeItem(key);
   } catch {
     // storage blocked: this visit only
   }
 }
+
+export const readMenuMinimized = (): boolean => readFlag(MINIMIZED_KEY);
+export const writeMenuMinimized = (minimized: boolean): void => writeFlag(MINIMIZED_KEY, minimized);
+export const readScoreMinimized = (): boolean => readFlag(SCORE_MINIMIZED_KEY);
+export const writeScoreMinimized = (minimized: boolean): void => writeFlag(SCORE_MINIMIZED_KEY, minimized);

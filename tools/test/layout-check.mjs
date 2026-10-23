@@ -24,6 +24,12 @@ const CASES = [
   { name: 'desk-1366-lab', width: 1366, height: 768, query: 'lab=1' },
   { name: 'tablet-touch', width: 1180, height: 820, touch: true },
   { name: 'quest-landing', width: 1278, height: 770, query: 'landing=1&lab=1', touch: true },
+  // Phones (the visible part of the page in a phone browser), with the touch stick.
+  { name: 'phone-390', width: 390, height: 664, query: 'touch=1', touch: true, phone: true },
+  { name: 'phone-390-menu', width: 390, height: 664, query: 'touch=1', touch: true, phone: true, menu: true },
+  { name: 'phone-430-menu-folded', width: 430, height: 740, query: 'touch=1', touch: true, phone: true, menu: true, fold: true },
+  { name: 'phone-360', width: 360, height: 640, query: 'touch=1', touch: true, phone: true },
+  { name: 'phone-landscape', width: 844, height: 390, query: 'touch=1', touch: true, menu: true },
 ];
 const NODES = ['menu-panel', 'run-panel', 'moves-panel', 'robot-panel', 'lab-panel'];
 mkdirSync('artifacts/layout', { recursive: true });
@@ -43,6 +49,13 @@ try {
     await page.goto(`${base}${c.query ? `?${c.query}` : ''}`, { waitUntil: 'load', timeout: 60000 });
     await page.waitForFunction(() => globalThis.__duck?.duck?.hasPose === true, null, { timeout: 90000 });
     if (c.details) await page.evaluate(() => globalThis.__duck.robotPanel.setSize('details'));
+    if (c.fold) {
+      await page.evaluate(() => {
+        globalThis.__duck.hud.setScoreMinimized(true);
+        globalThis.__duck.robotPanel.setSize('mini');
+      });
+    }
+    if (c.menu) await page.evaluate(() => globalThis.__duck.hud.toggleMenu(true));
     await page.waitForTimeout(2500);
     const boxes = await page.evaluate((nodes) => {
       const w = globalThis.__duck.world;
@@ -67,7 +80,7 @@ try {
         const cy = H / 2 - doc.position.y / wpp;
         out.push({ name: node, x: cx - pw / 2, y: cy - ph / 2, w: pw, h: ph });
       }
-      for (const sel of ['#duck-touch .stick', '#duck-touch .buttons', '#duck-touch .restart', '#duck-views']) {
+      for (const sel of ['#duck-touch .stick', '#duck-touch .hint', '#duck-views']) {
         const el = document.querySelector(sel);
         // offsetParent is null for hidden elements, and for fixed ones (the switch) too.
         if (!el || getComputedStyle(el).display === 'none' || (el.offsetParent === null && getComputedStyle(el).position !== 'fixed')) continue;
@@ -94,6 +107,20 @@ try {
     const list = boxes.out.map((b) => `${b.name} ${Math.round(b.x)},${Math.round(b.y)} ${Math.round(b.w)}x${Math.round(b.h)}`).join('; ');
     check(`${c.name} no overlaps`, overlaps.length === 0, overlaps.length ? overlaps.join(', ') : list);
     check(`${c.name} all on screen`, inside.length === 0, inside.join(', '));
+    if (!c.name.startsWith('quest')) {
+      // The 2D page has the moves on the menu: no separate move bar.
+      check(`${c.name} no separate move bar`, !boxes.out.some((b) => b.name === 'moves-panel'));
+    }
+    if (c.phone && c.menu) {
+      // Readable: the open menu spans the screen (its body scrolls), not a tall narrow strip.
+      const menu = boxes.out.find((b) => b.name === 'menu-panel');
+      check(`${c.name} menu drawn across the screen`, !!menu && menu.w >= boxes.W * 0.85, menu ? `${Math.round(menu.w)} of ${boxes.W} px wide` : 'not shown');
+    }
+    if (c.phone) {
+      const cam = boxes.out.find((b) => b.name === 'robot-panel');
+      const corner = !!cam && cam.x + cam.w / 2 > boxes.W / 2 && cam.y + cam.h / 2 > boxes.H / 2;
+      check(`${c.name} Pip cam in the bottom right corner`, corner, cam ? `${Math.round(cam.x)},${Math.round(cam.y)} ${Math.round(cam.w)}x${Math.round(cam.h)}` : 'not shown');
+    }
     if (c.name.startsWith('quest')) {
       const menu = boxes.out.find((b) => b.name === 'menu-panel');
       check(`${c.name} landing menu is large`, !!menu && menu.w >= boxes.W * 0.25, menu ? `${Math.round(menu.w)}x${Math.round(menu.h)} px of ${boxes.W}x${boxes.H}` : 'no menu');

@@ -87,6 +87,9 @@ const MOVES_NODE = 'moves-panel';
 const PANEL_GAP = 0.018;
 const FOLLOW_RATE = 5; // 1/s, how fast the panel catches up with the duck
 /** Screen-space boxes per size (desktop, then phones). */
+/** Phones: the camera panel's share of the visible height, and its gap to the screen edges (px). */
+export const PHONE_CAM_HEIGHT = 0.28;
+export const PHONE_EDGE_PX = 20;
 const SCREEN: Record<RobotPanelSize, { width: string; height: string }> = {
   mini: { width: '15vw', height: '24%' },
   normal: { width: '19vw', height: '44%' },
@@ -459,6 +462,7 @@ export class RobotPanelSystem extends createSystem({}) {
       'rp-min',
       'rp-max',
       'rp-feed',
+      'rp-tabs',
       'rp-view-motion',
       'rp-view-vision',
       'rp-view-note',
@@ -533,6 +537,11 @@ export class RobotPanelSystem extends createSystem({}) {
   private applySize(): void {
     const size = this.size;
     const xr = !this.flat;
+    // On the 2D page the small size folds the panel to its title bar (a new brain's offer stays);
+    // in a headset it is a small picture.
+    const folded = this.flat && size === 'mini';
+    this.display('rp-tabs', !folded);
+    this.display('rp-feed', !folded);
     this.display('rp-status', size !== 'mini');
     this.display('rp-details', size === 'details');
     this.display('rp-more', size === 'normal');
@@ -553,25 +562,30 @@ export class RobotPanelSystem extends createSystem({}) {
     const entity = this.hostEntity;
     if (!entity?.hasComponent(ScreenSpace)) return;
     const compact = !headsetLanding() && (window.innerWidth < NARROW_SCREEN_PX || touchControls.shown);
+    const canvas = this.world.renderer.domElement;
+    const W = canvas.clientWidth || window.innerWidth;
+    const H = canvas.clientHeight || window.innerHeight;
+    // IWSDK lays screen panels out in a 100vh box, but a phone browser's 100vh reaches under
+    // its toolbars: measure from the canvas (the part of the page that shows) instead.
+    const bottom = `calc(100vh - ${Math.round(H)}px + ${PHONE_EDGE_PX}px)`;
     if (compact) {
-      // Phones: under the scoreboard on the left, clear of the touch stick and buttons;
-      // the details view opens over the middle of the screen.
+      // Phones: the bottom right corner (the stick has the bottom left, the menu opens above);
+      // folded to its title bar it keeps the normal view's width; the details open upwards.
       const details = this.size === 'details';
-      entity.setValue(ScreenSpace, 'width', details ? '94vw' : this.size === 'mini' ? '36vw' : '46vw');
-      entity.setValue(ScreenSpace, 'height', details ? '62%' : this.size === 'mini' ? '18%' : '26%');
-      entity.setValue(ScreenSpace, 'left', '3vw');
-      entity.setValue(ScreenSpace, 'right', 'auto');
-      entity.setValue(ScreenSpace, 'top', '26%');
-      entity.setValue(ScreenSpace, 'bottom', 'auto');
+      const folded = this.size === 'mini';
+      const normalWidth = Math.round(Math.min(0.46 * W, PHONE_CAM_HEIGHT * H * this.normalAspect));
+      entity.setValue(ScreenSpace, 'width', details ? '94vw' : folded ? `${normalWidth}px` : '46vw');
+      entity.setValue(ScreenSpace, 'height', `${Math.round((details ? 0.62 : PHONE_CAM_HEIGHT) * H)}px`);
+      entity.setValue(ScreenSpace, 'left', 'auto');
+      entity.setValue(ScreenSpace, 'right', '3vw');
+      entity.setValue(ScreenSpace, 'top', 'auto');
+      entity.setValue(ScreenSpace, 'bottom', bottom);
       return;
     }
     const box = SCREEN[this.size];
     let width = box.width;
-    if (this.size === 'details') {
-      // Keep the normal view's width: the details are taller, not narrower.
-      const canvas = this.world.renderer.domElement;
-      const W = canvas.clientWidth || window.innerWidth;
-      const H = canvas.clientHeight || window.innerHeight;
+    if (this.size === 'details' || this.size === 'mini') {
+      // Keep the normal view's width: the details are taller, the folded bar shorter.
       width = `${Math.round(Math.min(0.19 * W, 0.44 * H * this.normalAspect))}px`;
     }
     entity.setValue(ScreenSpace, 'width', width);
@@ -579,7 +593,7 @@ export class RobotPanelSystem extends createSystem({}) {
     entity.setValue(ScreenSpace, 'left', 'auto');
     entity.setValue(ScreenSpace, 'right', '20px');
     entity.setValue(ScreenSpace, 'top', 'auto');
-    entity.setValue(ScreenSpace, 'bottom', '20px');
+    entity.setValue(ScreenSpace, 'bottom', bottom);
   }
 
   update(delta: number): void {
@@ -592,7 +606,7 @@ export class RobotPanelSystem extends createSystem({}) {
       this.shown = visible;
       asset.document.visible = visible;
     }
-    if (cam) cam.feedWanted = visible;
+    if (cam) cam.feedWanted = visible && !(this.flat && this.size === 'mini'); // folded: no picture to draw
     if (visible && this.size === 'normal' && asset) {
       const size = (asset.document as unknown as { computedSize?: { width: number; height: number } }).computedSize;
       if (size && size.width > 0 && size.height > 0) this.normalAspect = size.width / size.height;

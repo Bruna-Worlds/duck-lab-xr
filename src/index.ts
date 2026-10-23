@@ -25,6 +25,7 @@ import { RoomSystem } from './room/room-system.js';
 import { TerrainSystem } from './room/terrain-system.js';
 import { RunPanelSystem } from './run-panel.js';
 import { RobotPanelSystem } from './ui/robot-panel-system.js';
+import { OrbitCameraSystem } from './ui/orbit-camera-system.js';
 import { ViewSwitchSystem } from './ui/view-switch-system.js';
 import { ControlsCardSystem } from './ui/controls-card-system.js';
 import { PolicyInboxSystem } from './training/policy-inbox-system.js';
@@ -167,6 +168,7 @@ if (staleHeadsetTab) {
     world.registerSystem(PolicyInboxSystem);
     world.registerSystem(ViewSwitchSystem);
     world.registerSystem(ControlsCardSystem);
+    world.registerSystem(OrbitCameraSystem);
     world.registerSystem(LabLinkSystem);
     world.registerSystem(RealDuckSystem);
     world.registerSystem(RobotPanelSystem);

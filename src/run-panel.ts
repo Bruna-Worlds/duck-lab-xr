@@ -34,10 +34,11 @@ import { CourseSystem } from './course/course-system.js';
 import { DuckSystem, type MoveButton } from './duck/duck-system.js';
 import { DuckCamSystem } from './duck/duck-cam-system.js';
 import { EditorSystem } from './editor/editor-system.js';
-import { touchControls } from './input/touch-controls.js';
-import { readMenuMinimized, writeMenuMinimized } from './ui/menu-state.js';
+import { STICK_RIGHT_PX, STICK_ZONE_PX, touchControls } from './input/touch-controls.js';
+import { readMenuMinimized, readScoreMinimized, writeMenuMinimized, writeScoreMinimized } from './ui/menu-state.js';
 import { keepPanelOnTop } from './ui/on-top.js';
 import { headsetLanding } from './ui/page-mode.js';
+import { PHONE_CAM_HEIGHT, PHONE_EDGE_PX } from './ui/robot-panel-system.js';
 import { NavSystem } from './nav/nav-system.js';
 import { PlaygroundSystem } from './playgrounds/playground-system.js';
 import { RoomSystem, type RoomState } from './room/room-system.js';
@@ -61,6 +62,8 @@ const PALETTE_BUTTONS: Record<string, string> = {
   'ed-shoe': 'scan-boat-shoe-tan',
   'ed-dino': 'scan-triceratops',
 };
+/** The open-source repository, linked from the scoreboard. */
+const REPO_URL = 'https://github.com/Bruna-Worlds/duck-lab-xr';
 /** Below this width the scoreboard spans the screen top and the menu opens on demand. */
 const NARROW_SCREEN_PX = 720;
 /**
@@ -72,6 +75,9 @@ const MENU_DISTANCE = 0.55;
 const MENU_BELOW = 0.16;
 const MENU_LEFT = (30 * Math.PI) / 180;
 const MENU_SCALE = 0.08;
+/** The menu card's width, and its title bar and padding around the body, in panel units (menu.uikitml). */
+const MENU_CARD_UNITS = 450;
+const MENU_CHROME_UNITS = 80;
 /** Headset: space between the scoreboard and the move bar under it (metres). */
 const MOVES_GAP = 0.03;
 
@@ -124,6 +130,14 @@ export class RunPanelSystem extends createSystem({}) {
   menuMinimized = readMenuMinimized();
   /** The unfolded menu's size in panel units (refreshed while it is unfolded), so the folded title bar keeps its scale. */
   private menuFull = { w: 450, h: 770 };
+  /** 2D page: the scoreboard folded to its header (its minimize button; the chevron unfolds it). */
+  scoreMinimized = readScoreMinimized();
+  /** The unfolded scoreboard's size in panel units, so the folded header keeps its scale. */
+  private scoreFull = { w: 470, h: 300 };
+  /** The scoreboard's size as drawn now (folded or not), in panel units: the phone menu goes under it. */
+  private scoreDrawn = { w: 0, h: 0 };
+  /** The menu body's scrolling height last set (panel units; 0: no scrolling). */
+  private menuScroll = -1;
   private texts = new Map<string, Text>();
   private shown = new Map<string, string>();
   private assets = new Map<string, UIKitMLAsset>();
@@ -184,6 +198,27 @@ export class RunPanelSystem extends createSystem({}) {
     this.applyMode();
   }
 
+  /** Phones: the menu body scrolls inside this height (panel units); 0 lets it grow (desktop). */
+  private setMenuScroll(units: number): void {
+    if (units === this.menuScroll) return;
+    const body = this.texts.get('menu-body') as unknown as { setProperties(p: Record<string, unknown>): void } | undefined;
+    if (!body) return;
+    this.menuScroll = units;
+    body.setProperties(units > 0 ? { maxHeight: units, overflow: 'scroll' } : { maxHeight: undefined, overflow: 'visible' });
+  }
+
+  /** 2D page: folds the scoreboard to its header or unfolds it (remembered). */
+  setScoreMinimized(minimized: boolean): void {
+    this.scoreMinimized = minimized;
+    writeScoreMinimized(minimized);
+    this.applyMode();
+  }
+
+  /** The 2D page of a phone or a desktop (not a headset's landing page, not in a headset). */
+  private get page2d(): boolean {
+    return this.flat && !this.landing;
+  }
+
   /** A wide 2D page (not a headset's landing page, not a phone): the menu sits on the left. */
   private get desktopMenu(): boolean {
     return this.flat && !this.compact && !this.landing;
@@ -226,13 +261,21 @@ export class RunPanelSystem extends createSystem({}) {
       'editor-row',
       'ed-status',
       'xr-row',
+      'run-github',
+      'run-min',
+      'run-expand',
+      'run-body',
+      'run-mood-row',
+      'run-mood',
+      'moves-label',
+      'moves-row',
       ...Object.keys(PALETTE_BUTTONS),
       'ed-save',
       'ed-share',
       'ed-clear',
     ];
     for (const button of Object.keys(MOVE_NAMES)) {
-      ids.push(`move-${button}`, `move-${button}-name`, `move-${button}-key`);
+      ids.push(`move-${button}`, `move-${button}-name`, `move-${button}-key`, `mv-${button}`);
     }
     for (let i = 0; i < CHIPS; i++) {
       ids.push(`pg-${i}`);
@@ -270,6 +313,9 @@ export class RunPanelSystem extends createSystem({}) {
     listen('menu-title', () => {
       if (this.desktopMenu && this.menuMinimized) this.setMenuMinimized(false);
     });
+    listen('run-github', () => window.open(REPO_URL, '_blank', 'noopener'));
+    listen('run-min', () => this.setScoreMinimized(true));
+    listen('run-expand', () => this.setScoreMinimized(false));
     for (const [id, asset] of Object.entries(PALETTE_BUTTONS)) {
       listen(id, () => void this.editor?.add(asset));
     }
@@ -287,10 +333,13 @@ export class RunPanelSystem extends createSystem({}) {
     }
     for (const button of Object.keys(MOVE_NAMES) as MoveButton[]) {
       listen(`move-${button}`, () => this.duck?.fireMove(button));
+      listen(`mv-${button}`, () => this.duck?.fireMove(button));
     }
     listen('xr-button', () => this.world.launchXR({ sessionMode: SessionMode.ImmersiveAR }));
     listen('vr-button', () => this.world.launchXR({ sessionMode: SessionMode.ImmersiveVR }));
     this.menuPlaced = false;
+    this.menuScroll = -1; // new elements: set the scrolling again
+    this.scoreDrawn = { w: 0, h: 0 };
     this.applyMode();
   }
 
@@ -349,10 +398,20 @@ export class RunPanelSystem extends createSystem({}) {
     const folded = desktop && this.menuMinimized;
     const menuShown = desktop || (this.flat && !narrow) || this.menuOpen;
     this.panelVisible(MENU_NODE, menuShown);
-    // Shown on the landing page too: its text must first draw outside XR (IWSDK 1.1.0-rc.1
-    // leaves textures first uploaded under the Quest's multiview blank).
-    this.panelVisible(MOVES_NODE, !(this.flat && touchControls.shown));
+    // The move bar is the headset's: the 2D page has the moves on the menu. It is shown on the
+    // landing page too: its text must first draw outside XR (IWSDK 1.1.0-rc.1 leaves textures
+    // first uploaded under the Quest's multiview blank).
+    const page2d = this.page2d;
+    this.panelVisible(MOVES_NODE, !page2d);
     this.panelVisible(LAB_NODE, !(this.flat && this.landing)); // no room beside the landing menu
+    this.display('moves-label', page2d);
+    this.display('moves-row', page2d);
+    this.display('run-github', this.flat); // a link cannot open from inside a headset session
+    const scoreFolded = page2d && this.scoreMinimized;
+    this.display('run-min', page2d && !scoreFolded);
+    this.display('run-expand', scoreFolded);
+    this.display('run-body', !scoreFolded);
+    this.display('run-mood-row', page2d);
     this.display('menu-button', xr || narrow);
     this.display('menu-close', xr || narrow);
     this.display('menu-min', desktop && !folded);
@@ -392,29 +451,53 @@ export class RunPanelSystem extends createSystem({}) {
    */
   private layoutForScreen(): void {
     const compact = this.compact;
+    const canvas = this.world.renderer.domElement;
+    const W = canvas.clientWidth || window.innerWidth;
+    const H = canvas.clientHeight || window.innerHeight;
+    const portrait = compact && W <= H;
+    // Scoreboard: across the top of a phone held upright, the top right corner otherwise.
+    // Folded to its header it keeps the width it is drawn at unfolded, so the header keeps
+    // its scale. Phone sizes are worked out from the canvas: a phone browser's 100vh (what
+    // percentages resolve against) reaches under its toolbars.
+    const scoreBox = portrait ? { w: 0.94, h: 0.24, top: 8 } : compact ? { w: 0.3, h: 0.36, top: 8 } : { w: 0.27, h: 0.32, top: 20 };
+    const scoreW = Math.min(scoreBox.w * W, (scoreBox.h * H * this.scoreFull.w) / this.scoreFull.h);
+    const scoreFolded = this.page2d && this.scoreMinimized;
     const score = this.screenSpace(SCORE_NODE);
     if (score) {
-      score.setValue(ScreenSpace, 'width', compact ? '94vw' : '27vw');
-      score.setValue(ScreenSpace, 'height', compact ? '24%' : '32%');
+      score.setValue(ScreenSpace, 'width', scoreFolded ? `${Math.round(scoreW)}px` : `${Math.round(scoreBox.w * W)}px`);
+      score.setValue(ScreenSpace, 'height', `${Math.round(scoreBox.h * H)}px`);
       score.setValue(ScreenSpace, 'right', compact ? '3vw' : '20px');
-      score.setValue(ScreenSpace, 'top', compact ? '8px' : '20px');
+      score.setValue(ScreenSpace, 'top', `${scoreBox.top}px`);
     }
+    // Where the scoreboard ends as drawn now (folded or not), for the phone menu under it.
+    const drawn = this.scoreDrawn;
+    const scoreBottom = scoreBox.top + (drawn.w > 0 ? (scoreW * drawn.h) / drawn.w : (scoreW * this.scoreFull.h) / this.scoreFull.w);
+    let scroll = 0; // the menu body's height in panel units when it has to scroll (phones), 0: no scrolling
     const menu = this.screenSpace(MENU_NODE);
     if (menu) {
       // Desktop: a roomy menu down the left; with the dev lab panel under it, a smaller box.
       const labUnder = !!this.screenSpace(LAB_NODE);
       let box = this.landing
         ? { width: '30vw', height: '74%', left: '3vw', top: '5%' }
-        : compact
-          ? { width: '94vw', height: '40%', left: '3vw', top: '27%' }
-          : labUnder
-            ? { width: '26vw', height: '46%', left: '20px', top: '20px' }
-            : { width: '30vw', height: '68%', left: '20px', top: '20px' };
-      if (this.desktopMenu && this.menuMinimized) {
+        : labUnder
+          ? { width: '26vw', height: '46%', left: '20px', top: '20px' }
+          : { width: '30vw', height: '68%', left: '20px', top: '20px' };
+      if (compact) {
+        // Phones: the full width between the scoreboard and the stick or Pip cam (held upright),
+        // or right of the stick (on its side), drawn at a readable scale: what does not fit scrolls.
+        const camTop = H - PHONE_EDGE_PX - PHONE_CAM_HEIGHT * H;
+        const stickTop = H - STICK_ZONE_PX;
+        const top = portrait ? Math.round(scoreBottom + 10) : 8;
+        const left = portrait ? Math.round(0.03 * W) : STICK_RIGHT_PX;
+        const right = portrait ? Math.round(0.97 * W) : Math.round(W - 0.03 * W - Math.max(scoreW, (PHONE_CAM_HEIGHT * H * 3) / 4) - 12);
+        const bottom = portrait ? Math.min(camTop, stickTop) - 10 : H - 8;
+        const width = Math.max(120, right - left);
+        const height = Math.max(120, bottom - top);
+        box = { width: `${width}px`, height: `${height}px`, left: `${left}px`, top: `${top}px` };
+        const perUnit = Math.min(width / MENU_CARD_UNITS, 1); // px per panel unit when drawn full width
+        scroll = Math.max(160, Math.floor(height / perUnit - MENU_CHROME_UNITS));
+      } else if (this.desktopMenu && this.menuMinimized) {
         // Folded to its title bar: as wide as the unfolded menu is drawn, so the bar keeps its scale.
-        const canvas = this.world.renderer.domElement;
-        const W = canvas.clientWidth || window.innerWidth;
-        const H = canvas.clientHeight || window.innerHeight;
         const boxW = (labUnder ? 0.26 : 0.3) * W;
         const boxH = (labUnder ? 0.46 : 0.68) * H;
         box = { ...box, width: `${Math.round(Math.min(boxW, (boxH * this.menuFull.w) / this.menuFull.h))}px` };
@@ -424,6 +507,7 @@ export class RunPanelSystem extends createSystem({}) {
       menu.setValue(ScreenSpace, 'left', box.left);
       menu.setValue(ScreenSpace, 'top', box.top);
     }
+    this.setMenuScroll(scroll);
     // The dev lab panel fills the rest of the left side under the menu, 20 px clear of it.
     const lab = this.screenSpace(LAB_NODE);
     if (lab && !compact && !this.landing) {
@@ -460,9 +544,8 @@ export class RunPanelSystem extends createSystem({}) {
       splash?.classList.add('done');
       setTimeout(() => splash?.remove(), 700);
     }
-    // Shown on the landing page too: its text must first draw outside XR (IWSDK 1.1.0-rc.1
-    // leaves textures first uploaded under the Quest's multiview blank).
-    this.panelVisible(MOVES_NODE, !(this.flat && touchControls.shown));
+    // The headset's move bar (and the landing page's: see applyMode); the 2D page has the moves on the menu.
+    this.panelVisible(MOVES_NODE, !this.page2d);
     if (!this.flat) this.stackMoves();
 
     const playground = this.playground;
@@ -528,7 +611,9 @@ export class RunPanelSystem extends createSystem({}) {
     } else {
       this.text('run-result', info?.credits ? `${info.blurb} ${info.credits}.` : (info?.blurb ?? HINT));
     }
-    this.text('duck-mood', this.nav?.status || duck.status);
+    const mood = this.nav?.status || duck.status;
+    this.text('duck-mood', mood);
+    this.text('run-mood', mood);
     this.toggle('auto-button', this.nav?.task === 'course' || this.nav?.task === 'explore');
     this.toggle('cam-button', this.cam?.shown ?? false);
     this.toggle('menu-button', this.menuOpen);
@@ -537,6 +622,14 @@ export class RunPanelSystem extends createSystem({}) {
       if (size && size.width > 0 && size.height > 0) {
         this.menuFull.w = size.width;
         this.menuFull.h = size.height;
+      }
+    }
+    if (this.page2d) {
+      const size = (this.assets.get(SCORE_NODE)?.document as unknown as { computedSize?: { width: number; height: number } } | undefined)?.computedSize;
+      if (size && size.width > 0 && size.height > 0 && (size.width !== this.scoreDrawn.w || size.height !== this.scoreDrawn.h)) {
+        this.scoreDrawn = { w: size.width, h: size.height };
+        if (!this.scoreMinimized) this.scoreFull = { w: size.width, h: size.height };
+        this.layoutForScreen(); // folded or unfolded: the phone menu under it follows its height
       }
     }
 
@@ -587,6 +680,10 @@ export class RunPanelSystem extends createSystem({}) {
       if (moveState === 'loading') label = 'WAIT';
       else if (button === 'sit' && seated) label = 'STAND';
       this.text(`move-${button}-name`, label);
+      // The 2D page's copy on the menu, with its key on a desktop.
+      this.style(`mv-${button}`, color);
+      this.color(`mv-${button}`, active || moveState === 'ready' ? INK : MOVE_TEXT_DIM);
+      this.text(`mv-${button}`, this.compact ? label : `${label} (${MOVE_KEYS[button]})`);
     }
   }
 

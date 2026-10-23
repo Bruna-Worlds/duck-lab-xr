@@ -237,7 +237,7 @@ export class DuckSystem extends createSystem({
       if (entity === this.stage) this.unspawn();
     });
 
-    touchControls.install(); // phones and tablets get an on-screen stick and buttons
+    touchControls.install(); // phones and tablets get an on-screen stick (moves are on the menu)
     const onPageVisibility = () => this.applyPause();
     document.addEventListener('visibilitychange', onPageVisibility);
     this.cleanupFuncs.push(
@@ -644,12 +644,12 @@ export class DuckSystem extends createSystem({
     this.commandWz = turn * VEL_ANG;
     sim.setCommand(this.commandVx, this.commandWz, this.head);
 
-    if (right?.getButtonDown(InputComponent.A_Button) || keys.getKeyDown('KeyJ') || touchControls.take('kick')) this.fireMove('kick');
-    if (right?.getButtonDown(InputComponent.B_Button) || keys.getKeyDown('KeyK') || touchControls.take('roll')) this.fireMove('roll');
-    if (left?.getButtonDown(InputComponent.X_Button) || keys.getKeyDown('KeyL') || touchControls.take('sit')) this.fireMove('sit');
-    if (left?.getButtonDown(InputComponent.Y_Button) || keys.getKeyDown('KeyI') || touchControls.take('peck')) this.fireMove('peck');
+    if (right?.getButtonDown(InputComponent.A_Button) || keys.getKeyDown('KeyJ')) this.fireMove('kick');
+    if (right?.getButtonDown(InputComponent.B_Button) || keys.getKeyDown('KeyK')) this.fireMove('roll');
+    if (left?.getButtonDown(InputComponent.X_Button) || keys.getKeyDown('KeyL')) this.fireMove('sit');
+    if (left?.getButtonDown(InputComponent.Y_Button) || keys.getKeyDown('KeyI')) this.fireMove('peck');
     if (right?.getButtonDown(InputComponent.Thumbstick) || keys.getKeyDown('KeyN')) this.fireMove('bow');
-    if (left?.getButtonDown(InputComponent.Squeeze) || keys.getKeyDown('KeyR') || touchControls.take('restart')) this.restart();
+    if (left?.getButtonDown(InputComponent.Squeeze) || keys.getKeyDown('KeyR')) this.restart();
     if (right?.getButtonDown(InputComponent.Squeeze)) this.placeCourseWhereAimed();
     if (keys.getKeyDown('KeyT')) this.runSpeedTest();
 

@@ -2,7 +2,8 @@
 <!--
   Duck Lab XR menu: the playground picker, the course editor's palette, the
   duck toggles (autopilot, camera panel, editor), Restart and, on the 2D
-  page, Enter MR / Enter VR (at the top), pairing with Duck Lab XR's trainer on
+  page, Enter MR / Enter VR (at the top) and the duck's moves (a headset has
+  them on its controller buttons and the move bar), pairing with Duck Lab XR's trainer on
   the player's computer (TRAINER ON YOUR COMPUTER: src/link/lab-link-system.ts)
   and the link to a real Microduck (REAL DUCK: src/robot/real-duck-system.ts). In a headset it opens beside the player
   with the left controller's menu button (or the scoreboard's Menu chip).
@@ -19,23 +20,24 @@
   .close:hover { background-color: rgba(255, 244, 220, 0.2); }
   .glyph { width: 16px; height: 16px; color: #fff4dc; }
 
-  .section { font-family: bebas; font-size: 14px; letter-spacing: 2px; color: rgba(255, 244, 220, 0.45); }
-  .chips { flex-direction: row; gap: 8px; flex-wrap: wrap; }
+  .section { font-family: bebas; font-size: 14px; letter-spacing: 2px; color: rgba(255, 244, 220, 0.45); flex-shrink: 0; }
+  .chips { flex-direction: row; gap: 8px; flex-wrap: wrap; flex-shrink: 0; }
   .chip { font-size: 16px; font-weight: 700; color: #fff4dc; background-color: rgba(255, 244, 220, 0.08); border-width: 1px; border-color: rgba(255, 244, 220, 0.18); border-radius: 999px; padding-left: 15px; padding-right: 15px; padding-top: 9px; padding-bottom: 9px; cursor: pointer; flex-shrink: 0; }
   .chip:hover { background-color: rgba(255, 244, 220, 0.18); }
-  .status { font-size: 14px; font-weight: 600; color: rgba(255, 244, 220, 0.7); }
+  .status { font-size: 14px; font-weight: 600; color: rgba(255, 244, 220, 0.7); flex-shrink: 0; }
 
-  .buttons { flex-direction: row; gap: 8px; flex-wrap: wrap; }
+  .buttons { flex-direction: row; gap: 8px; flex-wrap: wrap; flex-shrink: 0; }
   .btn { font-family: bebas; font-size: 21px; letter-spacing: 1px; color: #fff4dc; background-color: rgba(255, 244, 220, 0.08); border-width: 2px; border-color: rgba(255, 244, 220, 0.25); border-radius: 999px; padding-left: 17px; padding-right: 17px; padding-top: 10px; padding-bottom: 8px; cursor: pointer; flex-shrink: 0; }
   .btn:hover { background-color: rgba(255, 244, 220, 0.18); }
   .btn-go { background-color: #3de0b8; border-color: #3de0b8; color: #0f1020; }
   .btn-go:hover { background-color: #6cf0cc; }
   .btn-vr { background-color: #6fb7ff; border-color: #6fb7ff; color: #0f1020; }
   .btn-vr:hover { background-color: #9bd0ff; }
-  .byline { font-size: 13px; font-weight: 700; color: rgba(255, 244, 220, 0.75); }
-  .enter { flex-direction: row; gap: 10px; padding-bottom: 4px; }
+  .byline { font-size: 13px; font-weight: 700; color: rgba(255, 244, 220, 0.75); flex-shrink: 0; }
+  .enter { flex-direction: row; gap: 10px; padding-bottom: 4px; flex-shrink: 0; }
   .btn-big { font-size: 28px; letter-spacing: 2px; padding-left: 26px; padding-right: 26px; padding-top: 13px; padding-bottom: 10px; flex-grow: 1; text-align: center; }
-  .credit { font-size: 10px; font-weight: 600; color: rgba(255, 244, 220, 0.45); padding-top: 2px; }
+  .credit { font-size: 10px; font-weight: 600; color: rgba(255, 244, 220, 0.45); padding-top: 2px; flex-shrink: 0; }
+  .move { font-family: bebas; font-size: 21px; letter-spacing: 1px; color: #0f1020; border-width: 2px; border-color: rgba(15, 16, 32, 0.25); border-radius: 999px; padding-left: 15px; padding-right: 15px; padding-top: 10px; padding-bottom: 8px; cursor: pointer; flex-shrink: 0; }
   .headbtns { flex-direction: row; gap: 8px; align-items: center; }
   .body { flex-direction: column; gap: 9px; }
 </style>
@@ -49,7 +51,15 @@
     </div>
   </div>
   <div id="menu-body" class="body">
-  <div class="byline">Duck Lab XR, developed by Bruna Worlds</div>
+  <div id="moves-label" class="section" style="display: none">MOVES</div>
+  <div id="moves-row" class="buttons" style="display: none">
+    <div id="mv-kick" class="move" style="background-color: #ffcf3f">KICK</div>
+    <div id="mv-roll" class="move" style="background-color: #6fb7ff">ROLL</div>
+    <div id="mv-sit" class="move" style="background-color: #3de0b8">SIT</div>
+    <div id="mv-peck" class="move" style="background-color: #ff7a45">PECK</div>
+    <div id="mv-bow" class="move" style="background-color: #cdb4db">BOW</div>
+  </div>
+  <div class="byline">Duck Lab XR, open source by Bruna Worlds</div>
   <div id="xr-row" class="enter">
     <div id="xr-button" class="btn btn-go btn-big">ENTER MR</div>
     <div id="vr-button" class="btn btn-vr btn-big">ENTER VR</div>

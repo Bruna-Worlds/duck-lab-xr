@@ -77,7 +77,7 @@
     <div id="rp-offer-try" class="offer-go">TRY IT</div>
     <div id="rp-offer-later" class="offer-later">LATER</div>
   </div>
-  <div class="tabs">
+  <div id="rp-tabs" class="tabs">
     <div id="rp-view-motion" class="tab">MOTION</div>
     <div id="rp-view-vision" class="tab">VISION</div>
     <div id="rp-view-note" class="tab-note">The room as its physics knows it</div>
