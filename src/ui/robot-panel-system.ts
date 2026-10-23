@@ -56,6 +56,7 @@ import { NavSystem } from '../nav/nav-system.js';
 import { RoomSystem } from '../room/room-system.js';
 import { PolicyInboxSystem } from '../training/policy-inbox-system.js';
 import { touchControls } from '../input/touch-controls.js';
+import { headsetMenu } from './menu-state.js';
 import { keepPanelOnTop, PANEL_RENDER_ORDER } from './on-top.js';
 import { headsetLanding } from './page-mode.js';
 import { RobotCharts } from './robot-charts.js';
@@ -80,6 +81,8 @@ const WALL_SNAP = 0.25;
 const WALL_GAP = 0.02;
 /** Docked: space between the panel and the scoreboard block, and the panel's size there (it is a few metres away). */
 const DOCK_GAP = 0.08;
+/** A wall pulling Pip cam's docked slot in by more than this (metres) sends it to the block's other side. */
+const WALL_PULL = 0.05;
 const DOCK_SCALE = 1.8;
 const SCORE_NODE = 'run-panel';
 const MOVES_NODE = 'moves-panel';
@@ -214,6 +217,8 @@ export class RobotPanelSystem extends createSystem({}) {
   private readonly right = new Vector3();
   private readonly gripPos = new Vector3();
   private readonly slotCenter = new Vector3();
+  private readonly otherSlot = new Vector3();
+  private readonly unpulled = new Vector3();
   private readonly slotRight = new Vector3();
   private readonly slotUp = new Vector3();
   private readonly slotScale = new Vector3();
@@ -425,13 +430,33 @@ export class RobotPanelSystem extends createSystem({}) {
       stage.getWorldPosition(this.v);
       side = this.v.sub(this.slotCenter).dot(this.slotRight) > 0 ? 1 : -1;
     }
+    // In a scanned room a slot is never beyond a side wall. A wall that pulls the
+    // start side's slot in (over the block, or over the open menu on its right)
+    // sends the panel to the other side, if that has more room.
+    this.sideSlot(side, half, width, gap, bottom, out);
+    const pulled = this.pullInside(out);
+    if (pulled > WALL_PULL) {
+      this.sideSlot(-side, half, width, gap, bottom, this.otherSlot);
+      if (this.pullInside(this.otherSlot) < pulled) out.copy(this.otherSlot);
+    }
+    return true;
+  }
+
+  /** The slot on one side of the block, bottom-aligned with it; on the right, beyond the open menu. */
+  private sideSlot(side: number, half: number, width: number, gap: number, bottom: number, out: Vector3): void {
+    const reach = half + (side > 0 ? headsetMenu.span : 0);
     out
       .copy(this.slotCenter)
-      .addScaledVector(this.slotRight, side * (half + DOCK_GAP + width / 2))
-      .addScaledVector(this.slotUp, bottom - gap); // the panel bottom-aligned with the block
-    // In a scanned room: never beyond a side wall either.
-    this.room?.keepInside(out, this.slotCenter);
-    return true;
+      .addScaledVector(this.slotRight, side * (reach + DOCK_GAP + width / 2))
+      .addScaledVector(this.slotUp, bottom - gap);
+  }
+
+  /** Moves a slot back inside the scanned room and returns how far it moved (metres). */
+  private pullInside(slot: Vector3): number {
+    if (!this.room) return 0;
+    this.unpulled.copy(slot);
+    this.room.keepInside(slot, this.slotCenter);
+    return this.unpulled.distanceTo(slot);
   }
 
   /** Find this level's panel and wire it (runs on every level change). */

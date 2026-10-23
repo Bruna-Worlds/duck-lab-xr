@@ -30,3 +30,11 @@ export const readMenuMinimized = (): boolean => readFlag(MINIMIZED_KEY);
 export const writeMenuMinimized = (minimized: boolean): void => writeFlag(MINIMIZED_KEY, minimized);
 export const readScoreMinimized = (): boolean => readFlag(SCORE_MINIMIZED_KEY);
 export const writeScoreMinimized = (minimized: boolean): void => writeFlag(SCORE_MINIMIZED_KEY, minimized);
+
+/**
+ * Headset: how far the open menu reaches out from the scoreboard's right edge
+ * (metres, its gap included), 0 while it is closed. Pip cam, docked on the
+ * same side, stands beyond it (robot-panel-system.ts) so the two never cover
+ * each other. Written by RunPanelSystem every frame, before Pip cam's system reads it.
+ */
+export const headsetMenu = { span: 0 };

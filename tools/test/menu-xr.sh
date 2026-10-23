@@ -2,8 +2,9 @@
 # Copyright 2026 BRUNA GOODS LLC
 # SPDX-License-Identifier: Apache-2.0
 # The menu in a headset (emulated mixed reality): closed at first, opened by
-# clicking the left thumbstick, placed in front of the player and facing
-# them, a playground picked with the right ray loads (and closes the menu),
+# clicking the left thumbstick, hung beside the scoreboard on its right (in
+# its plane, centred on it and the move bar, covering neither, and Pip cam
+# steps aside), a playground picked with the right ray loads (and closes the menu),
 # the menu's close button works, and a closed menu does not catch rays.
 # Needs the dev server with --allow-browser-automation. Prints PASS/FAIL
 # lines and a JSON tally.
@@ -21,8 +22,8 @@ probe() {
 }
 cli() { npx @iwsdk/cli "$@" --raw > /dev/null 2>&1; }
 num() { node -e "const s = JSON.parse(process.argv[1]); console.log($2)" "$1"; }
-# Menu state: open flag, document shown, where it is relative to the head, and a chip's world position.
-MENU="(() => { const d = globalThis.__duck; const w = d.world; const asset = w.getSceneObject('menu-panel'); const host = w.requireSceneEntity('menu-panel').object3D; const V = host.position.constructor; const Q = host.quaternion.constructor; const hp = new V(), head = new V(); host.getWorldPosition(hp); w.player.head.getWorldPosition(head); const z = new V(0, 0, 1).applyQuaternion(host.getWorldQuaternion(new Q())); const to = head.clone().sub(hp); const dist = to.length(); to.normalize(); const at = (id) => { const el = asset.getElementById(id); const p = new V(); el.getWorldPosition(p); return { x: p.x, y: p.y, z: p.z }; }; const fwd = new V(0, 0, -1).applyQuaternion(w.player.head.getWorldQuaternion(new Q())); const toPanel = hp.clone().sub(head).normalize(); const offAxis = Math.acos(Math.max(-1, Math.min(1, fwd.dot(toPanel)))) * 180 / Math.PI; const size = asset.document.computedSize; const ws = new V(); host.getWorldScale(ws); const halfWidth = size ? Math.atan((size.width * 0.01 * ws.x) / 2 / dist) * 180 / Math.PI : 0; return { offAxis: Math.round(offAxis), halfWidth: Math.round(halfWidth), open: d.hud.menuOpen, shown: asset.document.visible, distance: Math.round(dist * 1000) / 1000, facing: Math.round(z.dot(to) * 1000) / 1000, chip: at('pg-1'), close: at('menu-close'), playground: d.playgrounds.current }; })()"
+# Menu state: open flag, document shown, where it hangs in the scoreboard's frame (metres), what it covers, and two chips' world positions.
+MENU="(() => { const d = globalThis.__duck; const w = d.world; const asset = w.getSceneObject('menu-panel'); const host = w.requireSceneEntity('menu-panel').object3D; const score = w.requireSceneEntity('run-panel').object3D; const moves = w.requireSceneEntity('moves-panel').object3D; const V = host.position.constructor; const Q = host.quaternion.constructor; const sq = score.getWorldQuaternion(new Q()); const inv = sq.clone().invert(); const sp = score.getWorldPosition(new V()); const rect = (o, doc) => { if (!o || !doc || !doc.computedSize) return null; const c = o.getWorldPosition(new V()).sub(sp).applyQuaternion(inv); const s = new V(); o.getWorldScale(s); const hw = doc.computedSize.width * 0.01 * s.x / 2; const hh = doc.computedSize.height * 0.01 * s.y / 2; return { x0: c.x - hw, x1: c.x + hw, y0: c.y - hh, y1: c.y + hh, y: c.y, z: c.z }; }; const m = rect(host, asset.document); const b = rect(score, w.getSceneObject('run-panel').document); const mv = rect(moves, w.getSceneObject('moves-panel').document); const rp = d.robotPanel; const r = rp && rp.hostEntity && rp.asset ? rect(rp.hostEntity.object3D, rp.asset.document) : null; const over = (a, c) => !!(a && c && a.x0 < c.x1 && c.x0 < a.x1 && a.y0 < c.y1 && c.y0 < a.y1); const turn = 2 * Math.acos(Math.min(1, Math.abs(host.getWorldQuaternion(new Q()).dot(sq)))) * 180 / Math.PI; const at = (id) => { const el = asset.getElementById(id); const p = new V(); el.getWorldPosition(p); return { x: p.x, y: p.y, z: p.z }; }; const right = Math.max(b.x1, mv ? mv.x1 : b.x1); const mid = (b.y1 + (mv ? mv.y0 : b.y0)) / 2; const r3 = (v) => Math.round(v * 1000) / 1000; return { open: d.hud.menuOpen, shown: asset.document.visible, gap: r3(m.x0 - right), dy: r3(m.y - mid), plane: r3(Math.abs(m.z)), turn: Math.round(turn * 10) / 10, overBlock: over(m, b) || over(m, mv), overRobot: over(m, r), chip: at('pg-1'), close: at('menu-close'), playground: d.playgrounds.current }; })()"
 click_stick() {
   cli xr set-gamepad-state --input-json '{"device":"controller-left","buttons":[{"index":2,"value":1}]}'
   sleep 0.4
@@ -49,9 +50,12 @@ click_stick
 m1=$(probe "$MENU")
 echo "menu $m1"
 check "left stick click opens it" "$(num "$m1" "s.open && s.shown ? 1 : 0")" "open $(num "$m1" "s.open") shown $(num "$m1" "s.shown")"
-check "in front of the player" "$(num "$m1" "s.distance > 0.4 && s.distance < 0.9 ? 1 : 0")" "$(num "$m1" "s.distance") m from the eyes"
-check "faces the player" "$(num "$m1" "s.facing > 0.95 ? 1 : 0")" "facing $(num "$m1" "s.facing")"
-check "keeps the centre of view clear" "$(num "$m1" "s.offAxis - s.halfWidth >= 10 ? 1 : 0")" "centre $(num "$m1" "s.offAxis") deg off the line of sight, $(num "$m1" "2 * s.halfWidth") deg wide"
+check "beside the scoreboard, on its right" "$(num "$m1" "s.gap > 0.02 && s.gap < 0.15 && Math.abs(s.dy) < 0.05 ? 1 : 0")" "$(num "$m1" "s.gap") m right of the scoreboard and move bar, centred $(num "$m1" "s.dy") m off"
+check "in their plane, turned as they are" "$(num "$m1" "s.plane < 0.02 && s.turn < 1 ? 1 : 0")" "$(num "$m1" "s.plane") m off the plane, turned $(num "$m1" "s.turn") deg"
+check "covers neither the scoreboard nor the move bar" "$(num "$m1" "!s.overBlock ? 1 : 0")" "over them $(num "$m1" "s.overBlock")"
+sleep 2.5 # Pip cam glides to its slot
+m1b=$(probe "$MENU")
+check "Pip cam steps aside" "$(num "$m1b" "!s.overRobot ? 1 : 0")" "over Pip cam $(num "$m1b" "s.overRobot")"
 cli browser screenshot --output-file artifacts/ui/xr-menu.png
 
 before=$(num "$m1" "s.playground")

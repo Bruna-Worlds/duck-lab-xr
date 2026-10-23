@@ -12,9 +12,9 @@
  * On the 2D page the panels sit in the screen corners (ScreenSpace); phones
  * get a full-width scoreboard and open the menu from it. In a headset the
  * scoreboard and move bar stand beyond the course (see DuckSystem) and the
- * menu opens in front of the player with a left thumbstick click (Quest
- * keeps its menu button for the system) or the scoreboard's Menu chip. Text refreshes ten times a second and only
- * what changed is written.
+ * menu opens beside them, on their right, with a left thumbstick click
+ * (Quest keeps its menu button for the system) or the scoreboard's Menu
+ * chip. Text refreshes ten times a second and only what changed is written.
  */
 import {
   createSystem,
@@ -35,7 +35,7 @@ import { DuckSystem, type MoveButton } from './duck/duck-system.js';
 import { DuckCamSystem } from './duck/duck-cam-system.js';
 import { EditorSystem } from './editor/editor-system.js';
 import { STICK_RIGHT_PX, STICK_ZONE_PX, touchControls } from './input/touch-controls.js';
-import { readMenuMinimized, readScoreMinimized, writeMenuMinimized, writeScoreMinimized } from './ui/menu-state.js';
+import { headsetMenu, readMenuMinimized, readScoreMinimized, writeMenuMinimized, writeScoreMinimized } from './ui/menu-state.js';
 import { keepPanelOnTop } from './ui/on-top.js';
 import { headsetLanding } from './ui/page-mode.js';
 import { PHONE_CAM_HEIGHT, PHONE_EDGE_PX } from './ui/robot-panel-system.js';
@@ -67,14 +67,23 @@ const REPO_URL = 'https://github.com/Bruna-Worlds/duck-lab-xr';
 /** Below this width the scoreboard spans the screen top and the menu opens on demand. */
 const NARROW_SCREEN_PX = 720;
 /**
- * Headset menu: off to the left and a little low, so the course in front
- * stays in view: distance from the eyes and drop below them (metres), how
- * far round to the left (radians), and its size (about 32 cm wide).
+ * Headset menu: it hangs beside the scoreboard, on its right as the player
+ * sees it, in the same plane and centred on the scoreboard and the move bar
+ * under it, so it covers neither (the god-simulator hangs its panels side by
+ * side the same way). The gap to the wider of the two (metres), and its size:
+ * about 68 cm wide, a little under the scoreboard's 0.2 at the same distance.
+ */
+const MENU_GAP = 0.05;
+const MENU_SCALE = 0.15;
+/**
+ * Without a scoreboard it opens in front of the player instead, off to the
+ * left and a little low: distance from the eyes and drop below them (metres),
+ * how far round to the left (radians), and its size (about 32 cm wide).
  */
 const MENU_DISTANCE = 0.55;
 const MENU_BELOW = 0.16;
 const MENU_LEFT = (30 * Math.PI) / 180;
-const MENU_SCALE = 0.08;
+const MENU_NEAR_SCALE = 0.08;
 /** The menu card's width, and its title bar and padding around the body, in panel units (menu.uikitml). */
 const MENU_CARD_UNITS = 450;
 const MENU_CHROME_UNITS = 80;
@@ -528,7 +537,8 @@ export class RunPanelSystem extends createSystem({}) {
       if (this.desktopMenu) this.setMenuMinimized(!this.menuMinimized);
       else this.toggleMenu();
     }
-    if (!this.flat && this.menuOpen && !this.menuPlaced) this.placeMenu();
+    headsetMenu.span = 0; // placeMenuBeside sets it while the menu hangs beside the scoreboard
+    if (!this.flat && this.menuOpen) this.placeMenu(); // beside the scoreboard, wherever the course has moved it
 
     const duck = this.duck;
     const course = this.course;
@@ -711,15 +721,52 @@ export class RunPanelSystem extends createSystem({}) {
     movesHost.position.copy(scoreHost.position).add(this.v);
   }
 
-  /** Headset: the menu opens to the player's left, a little below the eyes, facing them. */
+  /** Headset: beside the scoreboard (see MENU_GAP), or, without one, in front of the player. */
   private placeMenu(): void {
-    let host: Object3D | undefined;
-    try {
-      host = this.world.requireSceneEntity(MENU_NODE).object3D;
-    } catch {
-      return;
+    const menu = this.host(MENU_NODE);
+    if (!menu) return;
+    if (this.placeMenuBeside(menu)) return;
+    if (this.menuPlaced) return;
+    this.placeMenuInFront(menu);
+    this.menuPlaced = true;
+  }
+
+  /** On the scoreboard's right, in its plane, centred on it and the move bar; false without a scoreboard. */
+  private placeMenuBeside(menu: Object3D): boolean {
+    const scoreHost = this.host(SCORE_NODE);
+    const score = this.assets.get(SCORE_NODE)?.document.computedSize;
+    const own = this.assets.get(MENU_NODE)?.document.computedSize;
+    if (!scoreHost || !score || !own || !(score.width > 0) || !(own.width > 0)) return false;
+    let half = (score.width * 0.01 * scoreHost.scale.x) / 2;
+    let down = 0;
+    const movesHost = this.host(MOVES_NODE);
+    const moves = this.assets.get(MOVES_NODE)?.document;
+    if (movesHost && moves?.visible && moves.computedSize && moves.computedSize.width > 0) {
+      half = Math.max(half, (moves.computedSize.width * 0.01 * movesHost.scale.x) / 2);
+      down = (MOVES_GAP + moves.computedSize.height * 0.01 * movesHost.scale.y) / 2;
     }
-    if (!host) return;
+    menu.scale.setScalar(MENU_SCALE);
+    const width = own.width * 0.01 * MENU_SCALE;
+    const across = half + MENU_GAP + width / 2;
+    headsetMenu.span = MENU_GAP + width;
+    scoreHost.updateWorldMatrix(true, false);
+    scoreHost.getWorldPosition(this.head);
+    scoreHost.getWorldQuaternion(this.q);
+    this.v.set(across, -down, 0).applyQuaternion(this.q).add(this.head);
+    menu.position.copy(this.v);
+    if (menu.parent) {
+      menu.parent.updateWorldMatrix(true, false);
+      menu.parent.worldToLocal(menu.position);
+      menu.parent.getWorldQuaternion(this.parentQ).invert();
+      menu.quaternion.copy(this.parentQ).multiply(this.q);
+    } else {
+      menu.quaternion.copy(this.q);
+    }
+    return true;
+  }
+
+  /** In front of the player, to the left and a little below the eyes, facing them. */
+  private placeMenuInFront(host: Object3D): void {
     const head = this.player.head;
     head.getWorldPosition(this.head);
     // The head looks down its -Z (true for a camera and for a plain head object alike).
@@ -730,7 +777,7 @@ export class RunPanelSystem extends createSystem({}) {
     this.forward.applyAxisAngle(RunPanelSystem.UP, MENU_LEFT); // + turns -Z towards -X: the player's left
     this.v.copy(this.head).addScaledVector(this.forward, MENU_DISTANCE);
     this.v.y -= MENU_BELOW;
-    host.scale.setScalar(MENU_SCALE);
+    host.scale.setScalar(MENU_NEAR_SCALE);
     host.position.copy(this.v);
     if (host.parent) {
       host.parent.updateWorldMatrix(true, false);
@@ -745,7 +792,15 @@ export class RunPanelSystem extends createSystem({}) {
     } else {
       host.quaternion.copy(this.q);
     }
-    this.menuPlaced = true;
+  }
+
+  /** A panel's scene node object, if this level has it. */
+  private host(node: string): Object3D | undefined {
+    try {
+      return this.world.requireSceneEntity(node).object3D ?? undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   private text(id: string, value: string): void {
