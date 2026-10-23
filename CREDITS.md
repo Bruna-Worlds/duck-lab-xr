@@ -17,6 +17,7 @@ each item keeps its own licence.
 | IWSDK starter template, `src/scene-assets/lib/hardsurface.ts` and the coding-agent guidance (`AGENTS.md` files, `.agents/`, `.claude/`, `.cursor/`, `.github/instructions/`) | see [NOTICE](NOTICE) | Meta Platforms, Inc. and affiliates | MIT ([LICENSES/MIT-IWSDK.txt](LICENSES/MIT-IWSDK.txt)) |
 | MuJoCo (WebAssembly) | npm `@mujoco/mujoco` | Google DeepMind | Apache-2.0 |
 | ONNX Runtime Web | npm `onnxruntime-web` | Microsoft | MIT |
+| Trystero (pairing over public Nostr relays) | npm `trystero` | Dan Motzenbecker | MIT |
 | IWSDK, UIKit, three.js | npm | Meta, pmndrs, three.js authors | MIT |
 
 Made for this project (Apache-2.0 with the code): the procedural course

@@ -5,13 +5,15 @@
  * The headset's link to Duck Lab XR's trainer on the player's computer (menu:
  * TRAINER ON YOUR COMPUTER).
  *
- * Both devices open the same website. The trainer (TRAINER on the computer) tells the
- * site's pairing rendezvous it is open and shows a six-digit code; the headset
- * lists the trainers on its network, and the player picks the one with the
- * code their computer shows. The headset then opens a WebRTC data channel
- * straight to that page, so scenario packs go up and trained brains come down
- * over the home network, not through the website. The pairing is remembered:
- * later the headset reconnects by itself whenever that trainer page is open.
+ * Both devices open the same website. The trainer (TRAINER on the computer)
+ * says it is open in its network's lobby and shows a six-digit code; the
+ * headset, in the same lobby, lists the trainers on its network, and the
+ * player picks the one with the code their computer shows. Pairing gives the
+ * headset that trainer's room, and the link runs there over WebRTC, straight
+ * between the two devices: scenario packs go up and trained brains come down
+ * over the home network. No server of ours is involved (src/link/mesh.ts).
+ * The pairing is remembered: the headset joins the trainer's room on every
+ * visit, so it reconnects by itself whenever that trainer page is open.
  *
  * On a desktop the trainer is one click away in the same page (PLAY | TRAINER,
  * src/ui/view-switch-system.ts): the section offers OPEN TRAINER instead.
@@ -23,18 +25,27 @@ import { DuckSystem } from '../duck/duck-system.js';
 import { PolicyInboxSystem } from '../training/policy-inbox-system.js';
 import { hostUserAgent } from '../ui/page-mode.js';
 import { ViewSwitchSystem } from '../ui/view-switch-system.js';
-import { type BrainRelease, type FileHeader, LINK_APP, LINK_VERSION, type LinkMessage, persistentId, spacedCode } from './link-protocol.js';
-import { PeerLink } from './peer-link.js';
-import { type LabInfo, PairingUnavailable, RendezvousClient } from './rendezvous-client.js';
+import {
+  type BrainRelease,
+  type FileHeader,
+  isRoom,
+  LINK_APP,
+  LINK_VERSION,
+  type LinkMessage,
+  type LobbyMessage,
+  persistentId,
+  spacedCode,
+} from './link-protocol.js';
+import { LinkRoom, Lobby, networkKeys, type RoomLink } from './mesh.js';
 
 const MENU_NODE = 'menu-panel';
 const PAIRED_KEY = 'ducklab.pairedTrainer';
-/** List the trainers on the network this often while not connected. */
-const LOOK_MS = 4000;
-/** Knock on the paired trainer this often when it is not listed (another network path). */
-const KNOCK_MS = 30_000;
+/** A trainer not heard from for this long is off the list (they say so every 15 s). */
+const HEARD_MS = 40_000;
+/** Try the lobby or the trainer's room again this long after it could not open. */
+const RETRY_MS = 30_000;
 const ANSWER_MS = 15_000;
-const OPEN_MS = 12_000;
+const OPEN_MS = 20_000;
 const PACK_ACK_MS = 30_000;
 const MAX_KEPT_PACKS = 8;
 const REFRESH_MS = 250;
@@ -49,9 +60,24 @@ const IDLE_BORDER = 'rgba(255, 244, 220, 0.25)';
 type Text = UIKit.Text;
 export type LinkPhase = 'unavailable' | 'looking' | 'connecting' | 'connected';
 
+/** A trainer page open on this network, as the menu lists it. */
+export interface LabInfo {
+  lab: string;
+  name: string;
+  /** Six digits, shown on the trainer page. */
+  code: string;
+}
+
+interface Heard extends LabInfo {
+  peerId: string;
+  at: number;
+}
+
 interface Paired {
   lab: string;
   name: string;
+  /** The trainer's room (a secret it gave this headset when they paired). */
+  room: string;
 }
 
 export class LabLinkSystem extends createSystem({}) {
@@ -66,11 +92,23 @@ export class LabLinkSystem extends createSystem({}) {
   /** The last thing worth saying (an error, a brain arriving); cleared on success. */
   note = '';
   packsSent = 0;
+  /** Why pairing cannot work here, when it cannot. */
+  private unavailable = '';
   /** The brain last reported to the trainer (it shows which one the headset runs). */
   private brainSent: string | null | undefined = undefined;
-  private link: PeerLink | null = null;
+  /** The trainer's link, once it said hello in its room. */
+  private link: RoomLink | null = null;
   private linkLab: LabInfo | null = null;
-  private rendezvous!: RendezvousClient;
+  private lobby: Lobby | null = null;
+  private lobbyBusy = false;
+  private lobbyTriedAt = -Infinity;
+  private linkRoom: LinkRoom | null = null;
+  /** The room joined or being joined ('' for none). */
+  private linkRoomFor = '';
+  private roomTriedAt = -Infinity;
+  private readonly heard = new Map<string, Heard>();
+  /** A pairing request waiting for its welcome. */
+  private asking: { lab: string; done: (welcome: Paired | null) => void } | null = null;
   private inbox: PolicyInboxSystem | undefined;
   private views: ViewSwitchSystem | undefined;
   private duck: DuckSystem | undefined;
@@ -78,31 +116,30 @@ export class LabLinkSystem extends createSystem({}) {
   private nudged = false;
   private kept: { name: string; json: string }[] = [];
   private acks = new Map<string, (file: string | null) => void>();
-  private brain: { release: BrainRelease; files: Map<string, Uint8Array> } | null = null;
-  private lastLook = -Infinity;
-  private lastKnock = -Infinity;
-  private looking = false;
+  private brain: { release: BrainRelease; expect: string[]; files: Map<string, Uint8Array>; ended: boolean } | null = null;
   private elements = new Map<string, Text>();
   private written = new Map<string, string>();
   private unbind: (() => void)[] = [];
   private lastRefresh = 0;
 
   init(): void {
-    this.rendezvous = new RendezvousClient(new URL(`${import.meta.env.BASE_URL}__duck/pair/`, document.baseURI).href);
     this.inbox = this.world.getSystem(PolicyInboxSystem);
     this.views = this.world.getSystem(ViewSwitchSystem);
     this.duck = this.world.getSystem(DuckSystem);
     this.cleanupFuncs.push(
       this.world.activeLevel.subscribe(() => this.bind()),
       () => this.release(),
-      () => this.link?.close(),
+      () => {
+        void this.lobby?.leave();
+        void this.linkRoom?.leave();
+      },
     );
     // Development: ?unpair forgets the paired trainer (headset tests clean up with it);
-    // ?pairCode=<6 digits> pairs with that trainer on load (headset tests without a tap).
+    // ?pairCode=<6 digits> pairs with that trainer once it is listed (headset tests without a tap).
     const params = new URLSearchParams(location.search);
     if (import.meta.env.DEV && params.has('unpair')) this.forget();
     const code = import.meta.env.DEV ? params.get('pairCode') : null;
-    if (code) setTimeout(() => void this.pairCode(code), 1500);
+    if (code) void this.pairCode(code);
   }
 
   get connected(): boolean {
@@ -131,41 +168,54 @@ export class LabLinkSystem extends createSystem({}) {
 
   update(): void {
     const now = performance.now();
-    if (!this.connected && this.phase !== 'connecting' && !this.looking && !(this.desktop && !this.paired)) {
-      const every = this.phase === 'unavailable' ? LOOK_MS * 15 : LOOK_MS;
-      if (now - this.lastLook > every) {
-        this.lastLook = now;
-        this.looking = true;
-        void this.look().finally(() => {
-          this.looking = false;
-        });
-      }
+    if (now - this.lastRefresh < REFRESH_MS) return;
+    this.lastRefresh = now;
+    const paired = this.paired;
+    // The trainer's room: where a paired headset finds its trainer, on every visit.
+    if (paired && this.linkRoomFor !== paired.room && now - this.roomTriedAt > RETRY_MS) {
+      this.roomTriedAt = now;
+      void this.joinLinkRoom(paired.room);
     }
-    if (now - this.lastRefresh >= REFRESH_MS) {
-      this.lastRefresh = now;
-      // The trainer page shows which brain the headset runs: report a change at once.
-      const brain = this.inbox?.current?.id ?? null;
-      if (this.connected && brain !== this.brainSent) {
-        this.brainSent = brain;
-        this.link?.send({ t: 'status', brain });
-      }
-      this.refresh();
+    // The lobby: the trainers on this network, while not connected.
+    const wantLobby = !this.connected && !(this.desktop && !paired);
+    if (wantLobby && !this.lobby && !this.lobbyBusy && now - this.lobbyTriedAt > RETRY_MS) {
+      this.lobbyTriedAt = now;
+      void this.joinLobby();
+    } else if (!wantLobby && this.lobby && !this.lobbyBusy) {
+      const lobby = this.lobby;
+      this.lobby = null;
+      this.heard.clear();
+      void lobby.leave();
     }
+    for (const [lab, entry] of this.heard) if (Date.now() - entry.at > HEARD_MS) this.heard.delete(lab);
+    this.nearby = [...this.heard.values()].slice(0, LAB_BUTTONS.length).map(({ lab, name, code }) => ({ lab, name, code }));
+    // The trainer page shows which brain the headset runs: report a change at once.
+    const brain = this.inbox?.current?.id ?? null;
+    if (this.connected && brain !== this.brainSent) {
+      this.brainSent = brain;
+      this.link?.send({ t: 'status', brain });
+    }
+    this.refresh();
   }
 
   /** Pairs with the listed trainer at `index` (the menu's PAIR buttons). */
   pair(index: number): void {
     const lab = this.nearby[index];
-    if (lab && !this.connected) void this.connect(lab, false);
+    if (lab && !this.connected) void this.connect(lab);
   }
 
-  /** Pairs with the trainer showing this code (it need not be listed). */
+  /** Pairs with the trainer showing this code, once it is listed (development: ?pairCode). */
   async pairCode(code: string): Promise<void> {
-    try {
-      await this.connect(await this.rendezvous.byCode(code), false);
-    } catch (err) {
-      this.note = message(err);
+    const deadline = Date.now() + 60_000;
+    while (Date.now() < deadline && !this.connected) {
+      const lab = [...this.heard.values()].find((entry) => entry.code === code);
+      if (lab) {
+        await this.connect(lab);
+        return;
+      }
+      await sleep(500);
     }
+    if (!this.connected) this.note = `No trainer showing ${spacedCode(code)} on this network.`;
   }
 
   /** Unpairs: closes the link and stops reconnecting. */
@@ -176,10 +226,13 @@ export class LabLinkSystem extends createSystem({}) {
     this.link = null;
     this.linkLab = null;
     link?.close();
+    const room = this.linkRoom;
+    this.linkRoom = null;
+    this.linkRoomFor = '';
+    void room?.leave();
     this.closed();
     this.note = '';
-    this.phase = 'looking';
-    this.lastLook = -Infinity;
+    this.phase = this.unavailable ? 'unavailable' : 'looking';
   }
 
   /**
@@ -225,107 +278,149 @@ export class LabLinkSystem extends createSystem({}) {
     }
   }
 
-  private async look(): Promise<void> {
+  // --- Finding and pairing ----------------------------------------------------------
+
+  private async joinLobby(): Promise<void> {
+    this.lobbyBusy = true;
     try {
-      this.nearby = (await this.rendezvous.labs()).slice(0, LAB_BUTTONS.length);
+      const keys = await networkKeys();
+      if (!keys.length) throw new Error('could not tell which network this headset is on (no answer from a STUN server)');
+      const lobby = await Lobby.join(keys);
+      lobby.onMessage = (message, peerId) => this.onLobby(message, peerId);
+      lobby.onPeerLeave = (peerId) => {
+        for (const [lab, entry] of this.heard) if (entry.peerId === peerId) this.heard.delete(lab);
+      };
+      this.lobby = lobby;
+      this.unavailable = '';
       if (this.phase === 'unavailable') this.phase = 'looking';
     } catch (err) {
-      this.nearby = [];
-      if (err instanceof PairingUnavailable) this.phase = 'unavailable';
-      return;
-    }
-    const paired = this.paired;
-    if (!paired && this.nearby.length && !this.nudged && this.duck) {
-      // Once: a trainer showed up and the menu may be closed (in a headset it is).
-      this.nudged = true;
-      const code = this.nearby.length === 1 ? ` ${spacedCode(this.nearby[0].code)}` : '';
-      this.duck.status = `Duck Lab XR's trainer is open on your computer. Pair in the menu: TRAINER, PAIR${code}.`;
-    }
-    if (!paired || this.connected || this.phase === 'connecting') return;
-    const listed = this.nearby.find((lab) => lab.lab === paired.lab);
-    const now = performance.now();
-    if (listed) {
-      await this.connect(listed, false);
-    } else if (now - this.lastKnock > KNOCK_MS) {
-      // Not listed (another network path, say): offer anyway, quietly.
-      this.lastKnock = now;
-      await this.connect({ lab: paired.lab, name: paired.name, code: '' }, true);
+      this.unavailable = message(err);
+      if (!this.connected && this.phase !== 'connecting') this.phase = 'unavailable';
+    } finally {
+      this.lobbyBusy = false;
     }
   }
 
-  private async connect(lab: LabInfo, quiet: boolean): Promise<void> {
-    if (this.phase === 'connecting' || this.connected) return;
-    this.link?.close();
-    if (!quiet) {
-      this.phase = 'connecting';
-      this.linkLab = lab;
-      this.note = '';
+  private onLobby(message: LobbyMessage, peerId: string): void {
+    if (message.t === 'lab') {
+      this.heard.set(message.lab, { lab: message.lab, name: message.name, code: message.code, peerId, at: Date.now() });
+      if (!this.paired && !this.nudged && this.duck) {
+        // Once: a trainer showed up and the menu may be closed (in a headset it is).
+        this.nudged = true;
+        const one = this.heard.size === 1 ? ` ${spacedCode(message.code)}` : '';
+        this.duck.status = `Duck Lab XR's trainer is open on your computer. Pair in the menu: TRAINER, PAIR${one}.`;
+      }
+    } else if (message.t === 'welcome' && this.asking?.lab === message.lab) {
+      this.asking.done({ lab: message.lab, name: message.name, room: message.room });
     }
+  }
+
+  private async connect(lab: LabInfo): Promise<void> {
+    if (this.phase === 'connecting' || this.connected) return;
+    this.phase = 'connecting';
+    this.linkLab = lab;
+    this.note = '';
     try {
-      const { link, sdp } = await PeerLink.offer();
-      const nonce = freshNonce();
-      this.wire(link, lab);
-      await this.rendezvous.send(lab.lab, this.deviceId, { type: 'offer', sdp, name: this.deviceName, role: 'headset', nonce });
-      const answer = await this.awaitAnswer(lab.lab, nonce);
-      if (this.link !== link) return;
-      if (!answer) {
-        link.close();
-        if (!quiet) this.note = `${lab.name} did not answer. Is its page still open?`;
+      const welcome = await this.askToPair(lab);
+      if (!welcome) {
+        this.note = `${lab.name} did not answer. Is its page still open?`;
         return;
       }
-      await link.accept(answer.sdp);
-      if (!(await opened(link, OPEN_MS))) {
-        link.close();
-        if (!quiet) this.note = `Could not reach ${lab.name} over your network`;
-      }
+      this.paired = welcome;
+      writePaired(welcome);
+      await this.joinLinkRoom(welcome.room);
+      if (!(await this.trainerArrives(OPEN_MS))) this.note = `Could not reach ${lab.name} over your network`;
     } catch (err) {
-      if (!quiet) this.note = `Pairing failed: ${message(err)}`;
+      this.note = `Pairing failed: ${message(err)}`;
     } finally {
-      if (this.phase === 'connecting') this.phase = this.connected ? 'connected' : 'looking';
-      if (!this.connected && !quiet) this.linkLab = null;
+      if (this.phase === 'connecting') this.phase = this.connected ? 'connected' : this.unavailable ? 'unavailable' : 'looking';
+      if (!this.connected) this.linkLab = null;
     }
   }
 
-  /** The trainer's answer to the offer with this nonce, or null after ANSWER_MS. */
-  private async awaitAnswer(lab: string, nonce: string): Promise<{ sdp: string; name: string } | null> {
-    const deadline = performance.now() + ANSWER_MS;
-    while (performance.now() < deadline) {
-      const wait = Math.min(5000, deadline - performance.now());
-      const messages = await this.rendezvous.inbox(this.deviceId, wait);
-      const answer = messages.find((m) => m.from === lab && m.data?.type === 'answer' && m.data.nonce === nonce);
-      if (answer) return answer.data;
-    }
-    return null;
+  /** Asks a listed trainer to pair; its welcome carries its room. Null when it did not answer. */
+  private askToPair(lab: LabInfo): Promise<Paired | null> {
+    const heard = this.heard.get(lab.lab);
+    if (!this.lobby || !heard) return Promise.resolve(null);
+    this.asking?.done(null);
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => finish(null), ANSWER_MS);
+      const finish = (welcome: Paired | null) => {
+        clearTimeout(timer);
+        if (this.asking?.done === finish) this.asking = null;
+        resolve(welcome);
+      };
+      this.asking = { lab: lab.lab, done: finish };
+      this.lobby?.send({ t: 'pair', v: LINK_VERSION, id: this.deviceId, name: this.deviceName }, heard.peerId);
+    });
   }
 
-  private wire(link: PeerLink, lab: LabInfo): void {
-    this.link = link;
-    link.onState = (state) => {
-      if (this.link !== link) return;
-      if (state === 'open') {
-        this.linkLab = lab;
-        this.phase = 'connected';
-        this.note = '';
-        this.paired = { lab: lab.lab, name: lab.name };
-        writePaired(this.paired);
-        link.send({ t: 'hello', app: LINK_APP, v: LINK_VERSION, role: 'headset', id: this.deviceId, name: this.deviceName });
-        this.brainSent = this.inbox?.current?.id ?? null;
-        link.send({ t: 'status', brain: this.brainSent });
-        if (this.inbox) this.inbox.linkConnected = true;
-        void this.flushKept();
-      } else if (state === 'closed') {
-        const wasOpen = this.phase === 'connected';
-        this.link = null;
-        this.closed();
-        if (wasOpen) {
-          this.phase = 'looking';
-          this.note = `Lost ${lab.name}. Reconnecting when its page is open.`;
-          this.lastLook = -Infinity;
-        }
+  /** Joins the paired trainer's room: the trainer is there whenever its page is open. */
+  private async joinLinkRoom(room: string): Promise<void> {
+    if (this.linkRoomFor === room && this.linkRoom) return;
+    const old = this.linkRoom;
+    this.linkRoom = null;
+    this.linkRoomFor = room;
+    void old?.leave();
+    try {
+      const linkRoom = await LinkRoom.join(room);
+      if (this.paired?.room !== room) {
+        void linkRoom.leave(); // forgotten meanwhile
+        return;
       }
+      linkRoom.onPeer = (link) => this.meet(link);
+      this.linkRoom = linkRoom;
+    } catch (err) {
+      this.linkRoomFor = ''; // try again later
+      this.note = `Could not open the link: ${message(err)}`;
+    }
+  }
+
+  /** Somebody joined the trainer's room: say who we are; the trainer says so back. */
+  private meet(link: RoomLink): void {
+    link.onMessage = (msg) => {
+      if (msg.t === 'hello' && msg.role === 'trainer' && msg.app === LINK_APP && msg.id === this.paired?.lab) this.adopt(link, msg.name);
+    };
+    link.send({ t: 'hello', app: LINK_APP, v: LINK_VERSION, role: 'headset', id: this.deviceId, name: this.deviceName });
+  }
+
+  /** The paired trainer is here: the link is up. */
+  private adopt(link: RoomLink, name: string): void {
+    const paired = this.paired;
+    if (!paired) return;
+    if (this.link && this.link !== link) this.link.close();
+    this.link = link;
+    const trainer = name || paired.name;
+    this.linkLab = { lab: paired.lab, name: trainer, code: '' };
+    if (trainer !== paired.name) {
+      this.paired = { ...paired, name: trainer };
+      writePaired(this.paired);
+    }
+    this.phase = 'connected';
+    this.note = '';
+    link.onState = (state) => {
+      if (state !== 'closed' || this.link !== link) return;
+      this.link = null;
+      this.closed();
+      this.phase = this.unavailable ? 'unavailable' : 'looking';
+      this.note = `Lost ${trainer}. Reconnecting when its page is open.`;
     };
     link.onMessage = (msg) => this.onMessage(msg);
     link.onFile = (header, bytes) => this.onFile(header, bytes);
+    this.brainSent = this.inbox?.current?.id ?? null;
+    link.send({ t: 'status', brain: this.brainSent });
+    if (this.inbox) this.inbox.linkConnected = true;
+    void this.flushKept();
+  }
+
+  /** Resolves true once the trainer said hello in its room, false after `ms`. */
+  private async trainerArrives(ms: number): Promise<boolean> {
+    const deadline = Date.now() + ms;
+    while (Date.now() < deadline) {
+      if (this.connected) return true;
+      await sleep(250);
+    }
+    return this.connected;
   }
 
   private closed(): void {
@@ -336,14 +431,12 @@ export class LabLinkSystem extends createSystem({}) {
     this.acks.clear();
   }
 
+  // --- Over the link ------------------------------------------------------------------
+
   private onMessage(msg: LinkMessage): void {
     switch (msg.t) {
       case 'hello':
-        if (this.linkLab && msg.name) {
-          this.linkLab = { ...this.linkLab, name: msg.name };
-          this.paired = { lab: this.linkLab.lab, name: msg.name };
-          writePaired(this.paired);
-        }
+        if (this.linkLab && msg.name) this.linkLab = { ...this.linkLab, name: msg.name };
         break;
       case 'pack-saved':
         this.acks.get(msg.name)?.(msg.file);
@@ -358,25 +451,15 @@ export class LabLinkSystem extends createSystem({}) {
         this.inbox?.fromTrainer(msg, (id) => this.link?.send({ t: 'want-brain', id }));
         break;
       case 'brain-start':
-        this.brain = { release: msg.release, files: new Map() };
+        this.brain = { release: msg.release, expect: msg.files, files: new Map(), ended: false };
         this.note = `Getting ${msg.release.name} from ${this.trainerName}...`;
         break;
-      case 'brain-end': {
-        const got = this.brain;
-        this.brain = null;
-        if (got && got.release.id === msg.id) {
-          void this.inbox?.storeLinked(got.release, got.files).then(
-            () => {
-              this.note = '';
-              this.link?.send({ t: 'status', brain: this.inbox?.current?.id ?? null });
-            },
-            (err: unknown) => {
-              this.note = `Could not keep ${got.release.name}: ${message(err)}`;
-            },
-          );
+      case 'brain-end':
+        if (this.brain && this.brain.release.id === msg.id) {
+          this.brain.ended = true;
+          this.finishBrain();
         }
         break;
-      }
       case 'brain-failed':
         this.brain = null;
         this.note = `Could not get the new brain: ${msg.error}`;
@@ -391,7 +474,26 @@ export class LabLinkSystem extends createSystem({}) {
 
   private onFile(header: FileHeader, bytes: Uint8Array): void {
     const brain = this.brain;
-    if (header.kind === 'brain' && brain && header.release === brain.release.id) brain.files.set(header.name, bytes);
+    if (header.kind === 'brain' && brain && header.release === brain.release.id) {
+      brain.files.set(header.name, bytes);
+      this.finishBrain();
+    }
+  }
+
+  /** Keeps a brain once its end and all its files are in (they travel on separate channels). */
+  private finishBrain(): void {
+    const got = this.brain;
+    if (!got || !got.ended || got.expect.some((name) => !got.files.has(name))) return;
+    this.brain = null;
+    void this.inbox?.storeLinked(got.release, got.files).then(
+      () => {
+        this.note = '';
+        this.link?.send({ t: 'status', brain: this.inbox?.current?.id ?? null });
+      },
+      (err: unknown) => {
+        this.note = `Could not keep ${got.release.name}: ${message(err)}`;
+      },
+    );
   }
 
   // --- Menu --------------------------------------------------------------------
@@ -399,7 +501,6 @@ export class LabLinkSystem extends createSystem({}) {
   private statusLine(): string {
     if (this.note) return this.note;
     if (this.desktop && !this.connected) return "Duck Lab XR's trainer runs in this browser: TRAINER at the top of the page, or the button below. Your headset pairs with it there.";
-    if (this.phase === 'unavailable') return 'Pairing needs the Duck Lab XR website; this copy of the app has no pairing service.';
     if (this.connected) {
       const line = `Connected to ${this.trainerName}. Hard moments go there; new brains come back.`;
       return this.trainerLine ? `${line} ${this.trainerLine}` : line;
@@ -407,6 +508,7 @@ export class LabLinkSystem extends createSystem({}) {
     if (this.phase === 'connecting') return `Connecting to ${this.linkLab?.name ?? 'Duck Lab XR'}...`;
     const kept = this.kept.length ? ` ${this.kept.length} pack${this.kept.length === 1 ? '' : 's'} waiting.` : '';
     if (this.paired) return `Paired with ${this.paired.name}. Open ${this.trainerAddress} on that computer and click TRAINER to connect.${kept}`;
+    if (this.phase === 'unavailable') return `Pairing is not available here: ${this.unavailable || 'no internet connection'}.`;
     if (this.nearby.length) return 'Pick the code your computer shows.';
     return `On your computer, open ${this.trainerAddress} and click TRAINER at the top. Its code shows up here.`;
   }
@@ -499,10 +601,13 @@ function headsetName(): string {
   return /Mobile|Android|iPhone|iPad/.test(ua) ? 'Phone or tablet' : 'Browser';
 }
 
+/** The trainer this headset paired with. A pairing from before rooms (no room) is dropped. */
 function readPaired(): Paired | null {
   try {
-    const value = JSON.parse(localStorage.getItem(PAIRED_KEY) ?? 'null') as Paired | null;
-    return value && typeof value.lab === 'string' && typeof value.name === 'string' ? value : null;
+    const value = JSON.parse(localStorage.getItem(PAIRED_KEY) ?? 'null') as Partial<Paired> | null;
+    return value && typeof value.lab === 'string' && typeof value.name === 'string' && isRoom(value.room)
+      ? { lab: value.lab, name: value.name, room: value.room }
+      : null;
   } catch {
     return null;
   }
@@ -517,27 +622,5 @@ function writePaired(value: Paired | null): void {
   }
 }
 
-/** A fresh id for one offer (its answer must carry it back). */
-function freshNonce(): string {
-  return Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, '0')).join('');
-}
-
-function opened(link: PeerLink, ms: number): Promise<boolean> {
-  if (link.state !== 'connecting') return Promise.resolve(link.open);
-  return new Promise((resolve) => {
-    const previous = link.onState;
-    const timer = setTimeout(() => finish(false), ms);
-    const finish = (value: boolean) => {
-      clearTimeout(timer);
-      if (link.onState === watch) link.onState = previous;
-      resolve(value);
-    };
-    const watch = (state: 'connecting' | 'open' | 'closed') => {
-      previous?.(state);
-      if (state !== 'connecting') finish(state === 'open');
-    };
-    link.onState = watch;
-  });
-}
-
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));

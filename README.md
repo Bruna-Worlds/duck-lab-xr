@@ -39,15 +39,19 @@ The duck's name is Pip.
 - **A real Microduck.** Drive your duck from the game and install a brain
   trained in Duck Lab XR on it, through Pollen's remote-access service.
 
-## Requirements
+## Play it
 
-- Node.js 22.12 or newer (see `.nvmrc`; 20.19+ and 24 also work).
-- A desktop computer with a current browser.
-- For mixed reality, a Meta Quest 3 on the same Wi-Fi as the computer.
-  Without one, the dev server's headset emulator (IWER) runs everything on
-  the desktop.
+Open **https://duck-lab-xr.vercel.app** in the browser of a Meta Quest 3 and
+press **ENTER MR** in the menu (or **ENTER VR** for the toy room). It also runs
+on a desktop browser, where W A S D walk the duck.
 
-## Quick start
+To train Pip on your room you also need the trainer engine on your computer:
+Node.js 22.12 or newer, this repository, then `npm install` and `npm run lab`
+(see [Training Pip on your room](#training-pip-on-your-room)).
+
+## Run it locally
+
+You need Node.js 22.12 or newer (see `.nvmrc`; 20.19+ and 24 also work).
 
 ```sh
 npm install
@@ -56,10 +60,10 @@ npm run lab    # the trainer engine on http://localhost:8790 (for training)
 ```
 
 `npm run dev` serves the game at https://localhost:8081/ and opens it in a
-managed browser with an emulated headset. To play on a Quest, open the
-network address that `npx @iwsdk/cli dev status` prints in the Quest
-browser, accept the local certificate warning, and press **ENTER MR** in the
-menu. A hosted version is planned at https://duck.bruna.world.
+managed browser with an emulated headset (IWER), so no headset is needed. To
+try it on a Quest on the same Wi-Fi, open the network address that
+`npx @iwsdk/cli dev status` prints in the Quest browser, accept the local
+certificate warning, and press **ENTER MR**.
 
 ## Playing
 
@@ -84,10 +88,13 @@ Delete) removes it.
 1. **Play.** When Pip falls twice within 20 seconds, or the autopilot is stuck
    for 8 seconds, the headset saves that moment as a test case: the room
    scan, the terrain, the duck's state and every command that led there.
-2. **Open the trainer.** On the computer, open the site and click
-   **TRAINER** at the top (in development, https://localhost:8081/). The
-   trainer engine has to be running: `npm run lab`, or in development the
-   page's **Start the trainer** button. The page shows a six-digit code.
+2. **Open the trainer.** Start the trainer engine on the computer
+   (`npm run lab` in this repository), then open the site there and click
+   **TRAINER** at the top (https://duck-lab-xr.vercel.app/trainer/; in
+   development https://localhost:8081/, where **Start the trainer** starts the
+   engine for you). When the browser asks whether the site may connect to
+   apps on this device, allow it: that is how the page reaches the engine.
+   The page shows a six-digit code.
 3. **Pair.** On the headset, open the same site, then the menu, **TRAINER ON
    YOUR COMPUTER**, and tap **PAIR** next to that code. From then on, test
    cases go up to the trainer by themselves, and the headset reconnects
@@ -101,11 +108,15 @@ Delete) removes it.
    brain ready", and **TRY IT** swaps it in without a reload. **REVERT** on
    Pip cam goes back to the shipped brain.
 
-The website only introduces the two devices: a small rendezvous
-(`tools/link/rendezvous-server.mjs`) lists trainer pages per network and
-passes one WebRTC offer and answer between them. Everything else goes
-straight between the devices. The trainer engine listens on 127.0.0.1 only
-and answers only its own page and the Duck Lab XR site.
+No server of ours is involved. The headset and the trainer page find each
+other through public Nostr relays with [trystero](https://github.com/dmotz/trystero):
+each learns its home's public address from a STUN server and joins a lobby
+named after it, so only devices on the same network meet there. Pairing hands
+the headset the trainer's own room, a secret that also encrypts the handshake;
+from then on the two talk directly over WebRTC on your home network
+(`src/link/`). The relays only ever carry a few bytes of handshake. The
+trainer engine listens on 127.0.0.1 only and answers only its own page and
+the Duck Lab XR site.
 
 The trainer can also publish a brain to the Hugging Face Hub (needed for a
 real duck) and export test cases for other simulators: MuJoCo scenes of
@@ -153,7 +164,6 @@ things do not work like a plain Vite project: `iwsdk.config.json`, not
 | `public/` | Models, the Microduck asset pack, Pollen's policies, scenes, UI panels (`ui/*.uikitml`), fonts and textures |
 | `tools/lab/` | The trainer engine and its page |
 | `tools/train/` | Fine-tuning, replay, releases, Hub publishing and export |
-| `tools/link/` | The pairing rendezvous |
 | `tools/test/` | Scripted checks against the dev server, and stand-ins for Pollen's service and the Hub |
 | `tools/film/` | Recording the demo films |
 | `tools/assets/` | Asset pipeline (Poly Haven downloads, Google Scanned Objects conversion) |

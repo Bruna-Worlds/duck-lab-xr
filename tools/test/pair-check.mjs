@@ -3,14 +3,18 @@
 
 /**
  * Pairing check (development): a headset page and Duck Lab XR's trainer page,
- * each in its own browser profile like two devices, pair over WebRTC through
- * the dev server's rendezvous. Then a scenario pack goes up to the trainer
+ * each in its own browser profile like two devices, find each other in their
+ * network's lobby and pair over WebRTC (trystero, public Nostr relays: needs the
+ * internet). Then a scenario pack goes up to the trainer
  * engine, the engine's active brain comes down and runs, and after a reload
  * the headset reconnects by itself and is still on that brain.
  *
  *   node tools/test/pair-check.mjs
+ *   TRAINER_SITE=https://duck-lab-xr.vercel.app/ node tools/test/pair-check.mjs
  *
- * Needs the dev server (https://localhost:8081) and the trainer engine
+ * TRAINER_SITE takes the trainer page from another copy of the site (the
+ * deployed one, say); the headset page stays on the dev server, whose test
+ * hooks the check reads. Needs the dev server (https://localhost:8081) and the trainer engine
  * (npm run lab, http://localhost:8790) with an active release. Leaves no
  * trace: the test pack is deleted and both profiles are thrown away.
  */
@@ -19,6 +23,7 @@ import { join } from 'node:path';
 import { chromium } from 'playwright';
 
 const SITE = process.env.SITE ?? 'https://localhost:8081/';
+const TRAINER_SITE = process.env.TRAINER_SITE ?? SITE;
 const ENGINE = 'http://localhost:8790';
 const SCENARIOS = 'artifacts/scenarios';
 const results = [];
@@ -41,15 +46,21 @@ const errors = [];
 const watch = (page, who) => {
   page.on('pageerror', (err) => errors.push(`${who}: ${err.message}`));
   page.on('console', (msg) => {
-    if (msg.type() === 'error' && !/favicon|Failed to load resource/.test(msg.text())) errors.push(`${who}: ${msg.text().slice(0, 200)}`);
+    // Trystero logs the data channel's close as an error when the other side leaves on purpose
+    // (a reload, FORGET): "User-Initiated Abort, reason=Close called". Not a fault.
+    const benign = /favicon|Failed to load resource|Trystero peer error: OperationError: User-Initiated Abort/;
+    if (msg.type() === 'error' && !benign.test(msg.text())) errors.push(`${who}: ${msg.text().slice(0, 200)}`);
   });
 };
 try {
   // The computer: the trainer page from the website.
   const trainerContext = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1400, height: 900 } });
+  // A site on the internet reaches the engine on this computer only once the player allows it
+  // (the browser asks: "access other apps and services on this device"). This is that click.
+  await trainerContext.grantPermissions(['local-network-access'], { origin: new URL(TRAINER_SITE).origin });
   const trainer = await trainerContext.newPage();
   watch(trainer, 'trainer');
-  await trainer.goto(`${SITE}trainer/`, { waitUntil: 'load', timeout: 60000 });
+  await trainer.goto(`${TRAINER_SITE}trainer/`, { waitUntil: 'load', timeout: 60000 });
   await trainer.waitForFunction(() => /^\d{3} \d{3}$/.test(document.getElementById('pair-code')?.textContent ?? ''), null, { timeout: 30000 });
   const code = (await trainer.textContent('#pair-code')).replace(' ', '');
   check('trainer page shows a pairing code', /^\d{6}$/.test(code), code);

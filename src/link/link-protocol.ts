@@ -2,23 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * What the headset and Duck Lab XR's trainer page say to each other over their
- * WebRTC data channel, and what they post to the pairing rendezvous to set
- * that channel up (tools/link/rendezvous-server.mjs).
- *
- * Text frames are JSON messages. A file (a scenario pack, one policy of a
- * trained brain) is a 'file' message followed by exactly `size` bytes in
- * binary frames, with nothing else in between: the channel is ordered and
- * reliable, so the receiver just counts.
+ * What the headset and Duck Lab XR's trainer page say to each other: in a
+ * network's lobby while pairing (LobbyMessage), then over the link in the
+ * trainer's own room (LinkMessage, plus files: a scenario pack, or one policy
+ * of a trained brain, each sent whole with its FileHeader). See src/link/mesh.ts.
  *
  * Kept free of IWSDK and DOM-only imports: the trainer page loads it too.
  */
 import { POLICY_FILES } from '../duck/duck-constants.js';
 
 export const LINK_APP = 'duck-lab';
-export const LINK_VERSION = 1;
-/** Binary frame size (Chromium takes up to 256 KB; smaller frames keep acks flowing). */
-export const CHUNK_BYTES = 64 * 1024;
+export const LINK_VERSION = 2;
 /** Largest file either side accepts. */
 export const MAX_FILE_BYTES = 64 * 1024 * 1024;
 /** The files of a trained brain, in the order they are sent. */
@@ -56,7 +50,6 @@ export interface FileHeader {
 
 export type LinkMessage =
   | { t: 'hello'; app: string; v: number; role: LinkRole; id: string; name: string }
-  | ({ t: 'file'; size: number } & FileHeader)
   /** Headset: which brain it runs now (null: the shipped one). */
   | { t: 'status'; brain: string | null; playground?: string }
   /** Trainer: a pack arrived and was saved (or could not be). */
@@ -72,10 +65,50 @@ export type LinkMessage =
   /** Trainer: what it is doing, one line ("Training room-tuned: iteration 4 of 30"). */
   | { t: 'trainer'; line: string };
 
-/** Rendezvous messages (the WebRTC offer and answer, all ICE candidates included). */
-export type SignalData =
-  | { type: 'offer'; sdp: string; name: string; role: LinkRole; nonce: string }
-  | { type: 'answer'; sdp: string; name: string; nonce: string };
+/**
+ * In a network's lobby: a trainer page says it is open (with the code its
+ * page shows); a headset asks it to pair; the trainer answers with its room,
+ * a secret only the headsets it paired with know.
+ */
+export type LobbyMessage =
+  | { t: 'lab'; v: number; lab: string; name: string; code: string }
+  | { t: 'pair'; v: number; id: string; name: string }
+  | { t: 'welcome'; v: number; lab: string; name: string; room: string };
+
+const ID = /^[A-Za-z0-9_-]{8,64}$/;
+const ROOM = /^[0-9a-f]{32}$/;
+const CODE = /^\d{6}$/;
+const isName = (value: unknown): value is string => typeof value === 'string' && value.length > 0 && value.length <= 80;
+
+/** Could this, which came from a stranger in the lobby, be a message we send? */
+export function isLobbyMessage(data: unknown): data is LobbyMessage {
+  if (typeof data !== 'object' || data === null) return false;
+  const m = data as Record<string, unknown>;
+  if (m.v !== LINK_VERSION) return false;
+  switch (m.t) {
+    case 'lab':
+      return typeof m.lab === 'string' && ID.test(m.lab) && isName(m.name) && typeof m.code === 'string' && CODE.test(m.code);
+    case 'pair':
+      return typeof m.id === 'string' && ID.test(m.id) && isName(m.name);
+    case 'welcome':
+      return typeof m.lab === 'string' && ID.test(m.lab) && isName(m.name) && isRoom(m.room);
+    default:
+      return false;
+  }
+}
+
+/** Is this a trainer's room secret (32 hex digits)? */
+export const isRoom = (value: unknown): value is string => typeof value === 'string' && ROOM.test(value);
+
+/** A fresh room secret. */
+export function freshRoom(): string {
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** A fresh six-digit pairing code. */
+export function freshCode(): string {
+  return String(crypto.getRandomValues(new Uint32Array(1))[0] % 1_000_000).padStart(6, '0');
+}
 
 /** A random id for this device or page, kept in local storage. */
 export function persistentId(key: string): string {

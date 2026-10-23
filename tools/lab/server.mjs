@@ -56,8 +56,8 @@ const port = Number(args[args.indexOf('--port') + 1]) || 8790;
 const LOCAL_HOST = /^(localhost|127\.0\.0\.1)(:\d+)?$/;
 const hubUrl = (process.env.DUCKLAB_HUB_URL ?? '').startsWith('http://') && LOCAL_HOST.test(new URL(process.env.DUCKLAB_HUB_URL).host) ? process.env.DUCKLAB_HUB_URL : undefined;
 
-/** The public Duck Lab XR website. */
-const PUBLIC_SITE = 'https://duck.bruna.world';
+/** The public Duck Lab XR website: its own address, and its Vercel address. */
+const PUBLIC_SITES = ['https://duck.bruna.world', 'https://duck-lab-xr.vercel.app'];
 
 /**
  * The Duck Lab XR website's origins: the public site, the dev server on 8081
@@ -68,7 +68,7 @@ function siteOrigins() {
   for (const list of Object.values(networkInterfaces())) {
     for (const address of list ?? []) if (address.family === 'IPv4' || address.family === 4) hosts.add(address.address);
   }
-  const origins = new Set([PUBLIC_SITE]);
+  const origins = new Set(PUBLIC_SITES);
   for (const host of hosts) origins.add(`https://${host}:8081`);
   for (const extra of (process.env.DUCKLAB_SITES ?? '').split(',').map((o) => o.trim()).filter(Boolean)) origins.add(extra);
   return origins;

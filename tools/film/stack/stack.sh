@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # The stacked phone film (1080 x 1920): the emulated headset in mixed reality
 # on top, Duck Lab XR's trainer page below, filmed at the same time and paired
-# for real over WebRTC through the dev server's rendezvous. One story:
+# for real over WebRTC (trystero over public Nostr relays). One story:
 #   Pip walks the room -> a hard moment saved on the headset -> it arrives on
 #   the computer -> replayed (the shipped brain falls) -> a short training ->
 #   a brain trained on these moments goes back -> TRY IT on the headset.

@@ -80,3 +80,7 @@ docs/
 artifacts/
 # Scenario packs hold a player's room scan: never commit one, wherever it lands
 *.scenario.json
+
+
+# Vercel project link (vercel link)
+.vercel/

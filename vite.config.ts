@@ -12,9 +12,7 @@ import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from '
 import { networkInterfaces } from 'node:os';
 import { resolve } from 'node:path';
 import { iwsdkDev } from '@iwsdk/vite-plugin-dev';
-import { defineConfig, type Plugin } from 'vite';
-// Plain Node module, shared with a future hosted version of the rendezvous.
-import { createRendezvous } from './tools/link/rendezvous-server.mjs';
+import { defineConfig, normalizePath, type Plugin } from 'vite';
 
 /**
  * Dev only. Two inboxes the app posts to, so a headset run leaves files on
@@ -87,23 +85,61 @@ function duckInbox(): Plugin {
 }
 
 /**
- * Dev only, the website half of pairing a headset with Duck Lab XR's trainer:
- * - /__duck/pair/: the pairing rendezvous (tools/link/rendezvous-server.mjs).
- *   Every visitor of the dev server counts as one network.
- * - /trainer/: the trainer page (tools/lab/ui) served by the website, so the
- *   headset and the computer open the same site. It talks to the trainer
- *   engine on this computer (npm run lab, http://localhost:8790) and pairs with
- *   the headset (src/link/trainer-link.ts). On a desktop the game shows it in
- *   a frame (src/ui/view-switch-system.ts). Served as plain HTML: the page must
- *   not get the headset emulator the app's index.html gets. /lab/ (its first
- *   address) redirects here.
+ * The trainer page as the website serves it (<site>/trainer/): the trainer
+ * engine's own page (tools/lab/ui), told where things are. It talks to the
+ * engine on the player's computer (npm run lab, http://localhost:8790) and
+ * pairs with headsets (src/link/trainer-link.ts, over WebRTC: no server of
+ * ours). Plain HTML: the page must not get the headset emulator the app's
+ * index.html gets in development.
+ */
+function trainerPageHtml(root: string, site: Record<string, unknown>): string {
+  return readFileSync(resolve(root, 'tools/lab/ui/index.html'), 'utf8')
+    .replace(/<script type="importmap">[\s\S]*?<\/script>\s*/, '')
+    .replace('href="style.css"', 'href="/tools/lab/ui/style.css"')
+    .replace(
+      '<script type="module" src="app.js"></script>',
+      `<script>window.DUCK_LAB_SITE = ${JSON.stringify(site)};</script>
+    <script type="module" src="/tools/lab/ui/app.js"></script>`,
+    );
+}
+
+/**
+ * Production builds: the trainer page goes in as dist/trainer/index.html (a
+ * second entry, made from tools/lab/ui/index.html when the build asks for it).
+ * The website cannot start the engine; the page says how (npm run lab).
+ */
+function trainerPage(): Plugin {
+  let root = process.cwd();
+  const entry = () => normalizePath(resolve(root, 'trainer/index.html'));
+  return {
+    name: 'duck-lab-trainer-page',
+    apply: 'build',
+    enforce: 'pre',
+    configResolved(config) {
+      root = config.root;
+    },
+    resolveId(source) {
+      return normalizePath(resolve(root, source)) === entry() ? entry() : null;
+    },
+    load(id) {
+      if (normalizePath(id) !== entry()) return null;
+      return trainerPageHtml(root, { engine: 'http://localhost:8790', duck: '../asset-packs/pollen-microduck/', start: null, headsetHost: null });
+    },
+  };
+}
+
+/**
+ * Dev only, the website half of Duck Lab XR's trainer:
+ * - /trainer/: the trainer page (trainerPageHtml), so the headset and the
+ *   computer open the same site. On a desktop the game shows it in a frame
+ *   (src/ui/view-switch-system.ts). /lab/ (its first address) redirects here.
  * - POST /__duck/trainer/start: the trainer page's one-click "Start the
  *   trainer" when the engine is not running. Only for browsers on this PC;
  *   on Windows the engine opens in its own window (close it to stop it).
  *   A hosted site cannot start programs: there a small installed helper will.
  */
 function duckLabSite(): Plugin {
-  const site = { engine: 'http://localhost:8790', signal: '/__duck/pair/', duck: '/asset-packs/pollen-microduck/', start: '/__duck/trainer/start' };
+  const site = { engine: 'http://localhost:8790', duck: '/asset-packs/pollen-microduck/', start: '/__duck/trainer/start' };
   /** Whether a request comes from a browser on this PC (loopback or one of its own addresses). */
   const fromThisComputer = (address: string | undefined): boolean => {
     const ip = (address ?? '').replace(/^::ffff:/, '');
@@ -119,9 +155,6 @@ function duckLabSite(): Plugin {
     name: 'duck-lab-site',
     apply: 'serve',
     configureServer(server) {
-      const rendezvous = createRendezvous();
-      server.httpServer?.once('close', () => rendezvous.close());
-      server.middlewares.use('/__duck/pair', (req, res) => rendezvous.handle(req, res));
       let starting = 0;
       server.middlewares.use('/__duck/trainer/start', (req, res) => {
         if (req.method !== 'POST' || !fromThisComputer(req.socket.remoteAddress)) {
@@ -165,14 +198,7 @@ function duckLabSite(): Plugin {
           .map((entry) => entry.address)
           .sort((a, b) => Number(b.startsWith('192.168.')) - Number(a.startsWith('192.168.')))[0];
         const pageSite = { ...site, headsetHost: lan ? `${lan}:${server.config.server.port ?? 8081}` : null };
-        const html = readFileSync(resolve(server.config.root, 'tools/lab/ui/index.html'), 'utf8')
-          .replace(/<script type="importmap">[\s\S]*?<\/script>\s*/, '')
-          .replace('href="style.css"', 'href="/tools/lab/ui/style.css"')
-          .replace(
-            '<script type="module" src="app.js"></script>',
-            `<script>window.DUCK_LAB_SITE = ${JSON.stringify(pageSite)};</script>
-    <script type="module" src="/tools/lab/ui/app.js"></script>`,
-          );
+        const html = trainerPageHtml(server.config.root, pageSite);
         res.setHeader('content-type', 'text/html; charset=utf-8');
         res.setHeader('cache-control', 'no-store');
         res.end(html);
@@ -201,13 +227,14 @@ function dropDevOnlyModels(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [iwsdkDev(), dropDevOnlyModels(), duckInbox(), duckLabSite()],
+  plugins: [iwsdkDev(), dropDevOnlyModels(), duckInbox(), duckLabSite(), trainerPage()],
   server: { host: '0.0.0.0', port: 8081, open: false },
   build: {
     outDir: 'dist',
     sourcemap: process.env.NODE_ENV !== 'production',
     target: 'esnext',
-    rollupOptions: { input: './index.html' },
+    // The game, and the trainer page (made by trainerPage() above).
+    rollupOptions: { input: { main: './index.html', trainer: './trainer/index.html' } },
   },
   esbuild: { target: 'esnext' },
   // @drawcall/uikitml otherwise pulls a second three/@pmndrs/uikit graph
@@ -228,6 +255,7 @@ export default defineConfig({
     exclude: ['@babylonjs/havok', '@mujoco/mujoco', 'onnxruntime-web'],
     include: [
       'three',
+      'trystero',
       '@pmndrs/uikit',
       '@pmndrs/uikit-horizon',
       '@pmndrs/uikit-lucide',

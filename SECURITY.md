@@ -23,9 +23,11 @@ Duck Lab XR has no releases yet: fixes go to the `main` branch.
   player's own computer. It listens on 127.0.0.1 only, accepts only localhost
   `Host` headers, and answers only its own page and the Duck Lab XR site's
   origins.
-- **Pairing** goes through a small rendezvous (`tools/link/rendezvous-server.mjs`)
-  that only passes a WebRTC offer and answer between a headset and a trainer
-  page on the same network; everything else flows directly between the two
+- **Pairing** uses no server of ours: the headset and the trainer page meet
+  through public Nostr relays (trystero), in a lobby named after a hash of
+  their home's public address, and the relays carry only the WebRTC handshake.
+  Pairing hands the headset the trainer's room, a 128-bit secret that also
+  encrypts that handshake; everything else flows directly between the two
   devices.
 - **Tokens:** no token is stored in the code. The game keeps a player's
   Hugging Face token in the tab's session storage only; the trainer sends a

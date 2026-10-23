@@ -728,7 +728,7 @@ async function startPairing() {
     return;
   }
   const { TrainerLink } = await import('/src/link/trainer-link.ts');
-  link = new TrainerLink({ signal: new URL(SITE.signal, location.href).href, engine: ENGINE, onChange: renderPairing });
+  link = new TrainerLink({ engine: ENGINE, onChange: renderPairing });
   link.start();
   renderPairing();
 }
