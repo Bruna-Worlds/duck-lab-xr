@@ -49,7 +49,8 @@ The duck's name is Pip.
 
 Open **https://duck-lab-xr.vercel.app** in the browser of a Meta Quest 3 and
 press **ENTER MR** in the menu (or **ENTER VR** for the toy room). It also runs
-on a desktop browser, where W A S D walk the duck.
+on a desktop browser, where W A S D walk the duck. The hosted site counts
+visits with Vercel Web Analytics, which sets no cookies.
 
 To train Pip on your room you also need the trainer engine on your computer:
 Node.js 22.12 or newer, this repository, then `npm install` and `npm run lab`
