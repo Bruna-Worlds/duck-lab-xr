@@ -20,6 +20,7 @@ import {
 import { DuckStage } from '../duck/duck-stage.js';
 import { DuckSystem } from '../duck/duck-system.js';
 import { MrOnly } from './course-components.js';
+import { FLOOR_LAYERS } from './floor-layers.js';
 
 /** The catcher spans the course: 2.4 m long, with a margin all round. */
 const CATCHER_SIZE: [number, number] = [3.4, 1.3];
@@ -80,7 +81,7 @@ export class GroundingSystem extends createSystem({
     }
     const p = duck.pose;
     // MuJoCo (x, y) -> stage-local three (x, -y); heading about +Y.
-    blob.position.set(p[0], 0.0045, -p[1]);
+    blob.position.set(p[0], FLOOR_LAYERS.shadow, -p[1]);
     blob.rotation.y = Math.atan2(2 * (p[3] * p[6] + p[4] * p[5]), 1 - 2 * (p[5] * p[5] + p[6] * p[6]));
     // Fade as the trunk drops (a sit or a fall flattens the duck's footprint).
     const height = p[2];

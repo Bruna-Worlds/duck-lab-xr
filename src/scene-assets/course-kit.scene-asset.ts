@@ -26,12 +26,14 @@ import {
   PlaneGeometry,
   RingGeometry,
   Shape,
+  ShapeGeometry,
   SphereGeometry,
   TorusGeometry,
   TubeGeometry,
   Vector3,
 } from '@iwsdk/core';
 import { alignSpan, bevelBox } from './lib/hardsurface.js';
+import { FLOOR_LAYERS } from '../course/floor-layers.js';
 import {
   at,
   type ColoredPart,
@@ -263,14 +265,35 @@ function buildGoal(): Group {
 const flat = (y: number, x = 0, z = 0) =>
   new Matrix4().makeTranslation(x, y, z).multiply(new Matrix4().makeRotationX(-Math.PI / 2));
 
-function chevron(): Shape {
+function chevron(x = 0): Shape {
   const s = new Shape();
-  s.moveTo(-0.016, 0.03);
-  s.lineTo(0.004, 0.03);
-  s.lineTo(0.028, 0);
-  s.lineTo(0.004, -0.03);
-  s.lineTo(-0.016, -0.03);
-  s.lineTo(0.008, 0);
+  s.moveTo(x - 0.016, 0.03);
+  s.lineTo(x + 0.004, 0.03);
+  s.lineTo(x + 0.028, 0);
+  s.lineTo(x + 0.004, -0.03);
+  s.lineTo(x - 0.016, -0.03);
+  s.lineTo(x + 0.008, 0);
+  s.closePath();
+  return s;
+}
+
+/**
+ * The pads are one flat top over a short open side: rim, field and flat
+ * markings lie side by side at one height, never one on another, so nothing
+ * on them flickers from across the room. The top clears the toy room's rug
+ * by 4 mm (see floor-layers.ts).
+ */
+const PAD = FLOOR_LAYERS.pad;
+const PAD_SEGMENTS = 48;
+
+/** A disc outline with its points where RingGeometry puts its own, so the two meet without a crack. */
+function discShape(radius: number): Shape {
+  const s = new Shape();
+  for (let i = 0; i < PAD_SEGMENTS; i++) {
+    const a = (i / PAD_SEGMENTS) * (Math.PI * 2);
+    if (i === 0) s.moveTo(radius * Math.cos(a), radius * Math.sin(a));
+    else s.lineTo(radius * Math.cos(a), radius * Math.sin(a));
+  }
   s.closePath();
   return s;
 }
@@ -278,17 +301,21 @@ function chevron(): Shape {
 function buildStartPad(): Group {
   const root = new Group();
   root.name = 'StartPad';
+  const arrows = [-0.05, -0.012, 0.026];
+  const field = discShape(0.118);
+  for (const x of arrows) field.holes.push(chevron(x));
   const parts: ColoredPart[] = [
-    { geometry: new CylinderGeometry(0.13, 0.132, 0.004, 48), matrix: at(0, 0.002, 0), color: 0x1f7a44 },
-    { geometry: new CylinderGeometry(0.118, 0.118, 0.0016, 48), matrix: at(0, 0.0046, 0), color: 0x3ba55c },
+    { geometry: new CylinderGeometry(0.13, 0.132, PAD, PAD_SEGMENTS, 1, true), matrix: at(0, PAD / 2, 0), color: 0x1f7a44 },
+    { geometry: new RingGeometry(0.118, 0.13, PAD_SEGMENTS), matrix: flat(PAD), color: 0x1f7a44 },
+    { geometry: new ShapeGeometry(field), matrix: flat(PAD), color: 0x3ba55c },
     {
       geometry: new TorusGeometry(0.106, 0.0022, 6, 48),
-      matrix: new Matrix4().makeTranslation(0, 0.0054, 0).multiply(new Matrix4().makeRotationX(Math.PI / 2)),
+      matrix: new Matrix4().makeTranslation(0, PAD, 0).multiply(new Matrix4().makeRotationX(Math.PI / 2)),
       color: WHITE,
     },
   ];
-  for (const x of [-0.05, -0.012, 0.026]) {
-    parts.push({ geometry: new ExtrudeGeometry(chevron(), { depth: 0.0012, bevelEnabled: false }), matrix: flat(0.0054, x), color: WHITE });
+  for (const x of arrows) {
+    parts.push({ geometry: new ShapeGeometry(chevron(x)), matrix: flat(PAD), color: WHITE });
   }
   root.add(mesh('Pad', mergeColored(parts), colored));
   root.traverse((o) => { o.receiveShadow = true; });
@@ -304,14 +331,15 @@ function buildFinishPad(): Group {
   const rings = [0, 0.05, 0.095, 0.135];
   const sectors = 12;
   const cells: ColoredPart[] = [
-    { geometry: new CylinderGeometry(0.142, 0.144, 0.004, 48), matrix: at(0, 0.002, 0), color: INK },
+    { geometry: new CylinderGeometry(0.142, 0.144, PAD, PAD_SEGMENTS, 1, true), matrix: at(0, PAD / 2, 0), color: INK },
+    { geometry: new RingGeometry(rings[rings.length - 1], 0.142, PAD_SEGMENTS), matrix: flat(PAD), color: INK },
   ];
   for (let ring = 0; ring < rings.length - 1; ring++) {
     for (let s = 0; s < sectors; s++) {
       const dt = (2 * Math.PI) / sectors;
       cells.push({
-        geometry: new RingGeometry(rings[ring], rings[ring + 1], 4, 1, s * dt, dt),
-        matrix: flat(0.0042),
+        geometry: new RingGeometry(rings[ring], rings[ring + 1], PAD_SEGMENTS / sectors, 1, s * dt, dt),
+        matrix: flat(PAD),
         color: (ring + s) % 2 === 0 ? WHITE : INK,
       });
     }
@@ -392,9 +420,9 @@ function buildCrumb(): Group {
     depthWrite: false,
     blending: AdditiveBlending,
   }));
-  halo.position.y = 0.003;
+  halo.position.y = FLOOR_LAYERS.glow - 0.002;
   const ring = mesh('Ring', new RingGeometry(0.03, 0.033, 40).rotateX(-Math.PI / 2), toyMaterial(0xffd166, 0.4, 0, { emissive: 0xffc233, emissiveIntensity: 1.1 }));
-  ring.position.y = 0.0035;
+  ring.position.y = FLOOR_LAYERS.glow;
   glow.add(halo, ring);
   root.add(glow);
   return root;

@@ -42,6 +42,8 @@ echo "== layout (2D HUD at several window sizes, in its own browser)"
 node tools/test/layout-check.mjs 2>&1 | tally layout
 echo "== dragging the room turns the camera (2D page, in its own browser)"
 node tools/test/orbit-check.mjs 2>&1 | tally orbit
+echo "== thin layers don't flicker through each other (2D page, in its own browser)"
+node tools/test/zfight-check.mjs 2>&1 | tally zfight
 echo "== room mesh fills the terrain map (desktop)"
 npx @iwsdk/cli browser run tools/test/mesh-heights-check.mjs --timeout 100000 2>&1 | tally mesh-heights
 echo "== terrain and room colliders (emulated mixed reality)"

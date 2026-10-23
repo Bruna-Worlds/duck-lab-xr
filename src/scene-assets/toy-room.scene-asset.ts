@@ -26,6 +26,7 @@ import {
 } from '@iwsdk/core';
 import { bevelBox, makeRandom } from './lib/hardsurface.js';
 import { COLLIDERS_KEY, type ColliderSpec } from '../course/collider-spec.js';
+import { FLOOR_LAYERS } from '../course/floor-layers.js';
 import { at, type ColoredPart, mergeColored, proceduralTexture, toyMaterial, valueNoise } from './lib/kit.js';
 
 const HALF = 3; // the room is 6 m square
@@ -353,17 +354,34 @@ function furniture(material: ReturnType<typeof toyMaterial>): Group {
 
 // ---- Assembly --------------------------------------------------------------------
 
+const mouldingMaterial = toyMaterial(0xffffff, 0.5, 0, { vertexColors: true });
+
+/**
+ * A picture set 12 mm into a moulding 4.5 cm wide and 3 cm deep (back at
+ * z -0.03, front at 0): far enough behind the moulding's face that the two
+ * never flicker through each other from across the room.
+ */
 function pictureFrame(seed: number, width: number, height: number): Group {
   const frame = new Group();
   frame.name = `Picture${seed}`;
-  const border = new Mesh(bevelBox(width + 0.08, height + 0.08, 0.03, 0.004), toyMaterial(0x3b2a1a, 0.5));
-  border.position.z = -0.015;
+  const bar = 0.045;
+  const outerW = width + 0.08;
+  const outerH = height + 0.08;
+  const parts: ColoredPart[] = [];
+  for (const side of [-1, 1]) {
+    parts.push({ geometry: bevelBox(outerW, bar, 0.03, 0.004), matrix: at(0, (side * (outerH - bar)) / 2, -0.015), color: 0x3b2a1a });
+    parts.push({ geometry: bevelBox(bar, outerH - 2 * bar, 0.03, 0.004), matrix: at((side * (outerW - bar)) / 2, 0, -0.015), color: 0x3b2a1a });
+  }
+  const moulding = new Mesh(mergeColored(parts), mouldingMaterial);
+  moulding.name = 'Moulding';
+  // The opening is 1 cm smaller than the picture, so its edges stay behind the moulding.
   const art = new Mesh(
     new PlaneGeometry(width, height),
     new MeshStandardMaterial({ map: artTexture(seed), roughness: 0.9 }),
   );
-  art.position.z = 0.001;
-  frame.add(border, art);
+  art.name = 'Art';
+  art.position.z = -0.012;
+  frame.add(moulding, art);
   return frame;
 }
 
@@ -379,14 +397,14 @@ function buildToyRoom(): Group {
   floor.receiveShadow = true;
   const floorBase = new Mesh(new PlaneGeometry(2 * HALF, 2 * HALF).rotateX(-Math.PI / 2), toyMaterial(0x2a1c10, 1));
   floorBase.name = 'FloorBase';
-  floorBase.position.y = -0.003;
+  floorBase.position.y = -0.01; // seen only in the gaps between planks; any closer, it shows through them from afar
 
   const rug = new Mesh(
     new PlaneGeometry(RUG_W, RUG_D, 1, 1).rotateX(-Math.PI / 2),
     new MeshStandardMaterial({ map: rugTexture, roughness: 0.95 }),
   );
   rug.name = 'Rug';
-  rug.position.set(0.05, 0.004, -1.3);
+  rug.position.set(0.05, FLOOR_LAYERS.rug, -1.3);
   rug.receiveShadow = true;
 
   // The four walls, each a group with what hangs on it, so the 2D page's camera can look in

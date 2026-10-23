@@ -37,6 +37,7 @@ import {
 import { installAudioUnlock, playQuack, playSound, unlockAudio } from '../audio/duck-sounds.js';
 import { touchControls } from '../input/touch-controls.js';
 import { CourseBall, CourseFinish } from '../course/course-components.js';
+import { FLOOR_LAYERS } from '../course/floor-layers.js';
 import { fromMujocoPosition, fromMujocoQuaternion, gatherCourse } from '../course/course-physics.js';
 import {
   BALL_OFFSET,
@@ -739,7 +740,7 @@ export class DuckSystem extends createSystem({
     for (const side of ['left', 'right']) {
       const mesh = new Mesh(ring, this.guideIdle);
       mesh.name = `kick-guide-${side}`;
-      mesh.position.y = 0.003;
+      mesh.position.y = FLOOR_LAYERS.guide;
       mesh.visible = false;
       group.add(mesh);
       this.kickGuides.push(mesh);
@@ -765,7 +766,7 @@ export class DuckSystem extends createSystem({
       const side = i === 0 ? KICK_SPOT_SIDE : -KICK_SPOT_SIDE; // MuJoCo +y is the duck's left
       const x = p[0] + c * KICK_SPOT_FORWARD - s * side;
       const y = p[1] + s * KICK_SPOT_FORWARD + c * side;
-      guide.position.set(x, 0.003, -y); // MuJoCo (x, y) -> three (x, -y)
+      guide.position.set(x, FLOOR_LAYERS.guide, -y); // MuJoCo (x, y) -> three (x, -y)
       const ready = Math.hypot(bx - x, by - y) < KICK_SPOT_RADIUS;
       guide.material = ready ? this.guideReady : this.guideIdle;
     }

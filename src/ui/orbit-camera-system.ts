@@ -34,6 +34,16 @@ const MAX_RADIUS = 9;
 const FLOOR_Y = 0.05;
 /** Portrait screens see less of the course across: start further out (up to this much). */
 const MAX_PORTRAIT_ZOOM = 1.7;
+/**
+ * The 2D page's near plane: a fiftieth of the camera's distance to the spot it
+ * turns about, within these bounds. The headset keeps iwsdk.config.json's
+ * 1 mm, which leaves the depth buffer about a millimetre of precision at room
+ * distances, too little for the floor's thin layers from out here. The browser
+ * panels sit 0.2 m in front of the camera, beyond the furthest this goes.
+ */
+const FLAT_NEAR_PER_M = 0.02;
+const FLAT_NEAR_MIN = 0.01;
+const FLAT_NEAR_MAX = 0.08;
 
 interface HeroView {
   position: [number, number, number];
@@ -72,6 +82,8 @@ export class OrbitCameraSystem extends createSystem({
   private ready = false;
   private dirty = false;
   private wasImmersive = false;
+  /** The near plane from iwsdk.config.json, given back in a headset session. */
+  private headsetNear = 0;
   /** The gesture in progress: where it started, its last point, the turn not yet applied. */
   private drag: { id: number; startX: number; startY: number; x: number; y: number; dx: number; dy: number; active: boolean; frames: number } | null = null;
   private editor: EditorSystem | undefined;
@@ -99,6 +111,7 @@ export class OrbitCameraSystem extends createSystem({
     this.offset = new Vector3();
     this.point = new Vector3();
     this.spherical = new Spherical();
+    this.headsetNear = this.camera.near;
     const canvas = this.world.renderer.domElement;
     canvas.style.touchAction = 'none'; // a finger drag turns the camera instead of scrolling the page
     const onDown = (event: PointerEvent) => {
@@ -168,6 +181,7 @@ export class OrbitCameraSystem extends createSystem({
 
   update(): void {
     if (!this.flat) {
+      this.setNear(this.headsetNear);
       this.wasImmersive = true;
       this.showAll(); // in a headset the player is in the room: every wall stands
       return;
@@ -196,7 +210,16 @@ export class OrbitCameraSystem extends createSystem({
       this.camera.position.copy(this.point);
       this.camera.lookAt(this.target);
     }
+    if (this.ready) {
+      this.setNear(Math.min(FLAT_NEAR_MAX, Math.max(FLAT_NEAR_MIN, this.spherical.radius * FLAT_NEAR_PER_M)));
+    }
     this.cutaway();
+  }
+
+  private setNear(near: number): void {
+    if (this.camera.near === near) return;
+    this.camera.near = near;
+    this.camera.updateProjectionMatrix();
   }
 
   /** Applies the drag's turn, unless the press picked up a piece in the editor. */
