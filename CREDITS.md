@@ -13,6 +13,7 @@ each item keeps its own licence.
 | Garden props: picnic table, planter box, potted plant, garden gnome, watering can, wooden crate, rubber duck toy, stone, rock, shrub, grass clump, football, wooden bucket, painted bench | `public/models/polyhaven/` | [Poly Haven](https://polyhaven.com/), fetched by `tools/assets/fetch-polyhaven.mjs` | CC0 |
 | Lawn and fence textures (`aerial_grass_rock`, `weathered_planks`), park sky (`ballawley_park`) | `public/textures/polyhaven/`, `public/env/` | Poly Haven | CC0 |
 | Backyard set | `public/models/backyard/` | Built by `tools/assets/blender_jobs.py` from the Poly Haven textures | CC0 inputs |
+| Animations in the README | `.github/media/` | Recorded by Bruna Worlds in IWER, Meta's WebXR emulator (MIT), in its built-in sunlit living room | They show the Microduck meshes, so they fall under CC BY-NC-SA 4.0 like the meshes |
 | Bebas Neue font | `public/fonts/` | Ryoichi Tsunekawa | SIL Open Font License 1.1 (`BebasNeue-OFL.txt`) |
 | IWSDK starter template, `src/scene-assets/lib/hardsurface.ts` and the coding-agent guidance (`AGENTS.md` files, `.agents/`, `.claude/`, `.cursor/`, `.github/instructions/`) | see [NOTICE](NOTICE) | Meta Platforms, Inc. and affiliates | MIT ([LICENSES/MIT-IWSDK.txt](LICENSES/MIT-IWSDK.txt)) |
 | MuJoCo (WebAssembly) | npm `@mujoco/mujoco` | Google DeepMind | Apache-2.0 |

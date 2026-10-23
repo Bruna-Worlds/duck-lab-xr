@@ -10,6 +10,12 @@ the improved brain goes back to the headset, or onto a real duck.
 
 The duck's name is Pip.
 
+<p align="center">
+  <img src=".github/media/mixed-reality.gif" width="480" alt="Pip, a small simulated robot duck, walks a course of gates and book stacks across a living-room floor, with the score panel and the Pip cam panel floating beside it">
+  <br>
+  <sub>Pip in mixed reality, recorded in IWER, Meta's headset emulator</sub>
+</p>
+
 > Duck Lab XR is an independent fan project, not made or endorsed by Pollen
 > Robotics. The duck's meshes are licensed CC BY-NC-SA 4.0, so the app is for
 > non-commercial use (see [Licence](#licence)).
@@ -84,6 +90,29 @@ mouse button) to slide it; the thumbstick (or Q / E) turns it and B (or
 Delete) removes it.
 
 ## Training Pip on your room
+
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src=".github/media/test-case-to-computer.gif" width="230" alt="The headset view above, the trainer page on the computer below: a moment where Pip struggled appears in the trainer's inbox as a test case">
+      <br><sub>A hard moment goes to the computer as a test case</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src=".github/media/replay-in-mujoco.gif" width="380" alt="The trainer page replays the test case in MuJoCo: the shipped walking brain falls over at the same spot">
+      <br><sub>Replayed in MuJoCo, the shipped brain falls there too</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src=".github/media/train-on-your-computer.gif" width="380" alt="The trainer page trains on the selected test case, its score chart climbing, sped up six times">
+      <br><sub>Training on that moment, on the computer's CPU</sub>
+    </td>
+    <td align="center">
+      <img src=".github/media/try-new-brain.gif" width="320" alt="On the headset, the Pip cam panel shows New brain ready with a TRY IT button">
+      <br><sub>The new brain arrives on the headset: TRY IT</sub>
+    </td>
+  </tr>
+</table>
 
 1. **Play.** When Pip falls twice within 20 seconds, or the autopilot is stuck
    for 8 seconds, the headset saves that moment as a test case: the room
@@ -181,6 +210,7 @@ then:
 
 ```sh
 bash tools/test/all.sh                   # every emulator check (about 20 min)
+bash tools/test/mr.sh tools/test/terrain-check.mjs  # depth sensing and the room scan as solid ground, in emulated mixed reality
 node tools/test/layout-check.mjs         # the 2D page: no overlapping panels at 7 window sizes
 node tools/test/pair-check.mjs           # headset and trainer pair over WebRTC: test case up, brain down, reconnect
 node tools/test/views-check.mjs          # the desktop PLAY | TRAINER switch
