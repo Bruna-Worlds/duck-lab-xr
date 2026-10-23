@@ -58,6 +58,8 @@ echo "== menu in a headset (emulated mixed reality)"
 bash tools/test/menu-xr.sh 2>&1 | tally menu-xr
 echo "== free roam (emulated mixed reality)"
 bash tools/test/mr.sh tools/test/explore-check.mjs 14 2>&1 | tally explore
+echo "== autopilot runs the whole course, shipped brain (emulated mixed reality)"
+BRAIN=shipped bash tools/test/mr.sh tools/test/course-run-check.mjs 14 2>&1 | tally course-run
 # Waits until a local URL answers (up to 15 s).
 wait_for() {
   for _ in $(seq 1 30); do

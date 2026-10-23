@@ -25,22 +25,61 @@ const CLIMBABLE = 0.1; // terrain lower than this the duck walks over (or stumbl
 const DUCK_RADIUS = 0.12; // obstacles grow by this so the body clears them
 const POST_RADIUS = 0.08; // thin posts (gates) grow less: the duck fits a 30 cm gate
 const NEAR_COST = 1.5; // extra cost for cells next to an obstacle: paths keep their distance
-const PURSUIT = 0.1; // aim at the first path point this far ahead
+const LOOKAHEAD = 0.28; // metres along the path: the point the duck steers for
 const PASS_BEYOND = 0.1; // a gate counts once the duck is this far past it along the course
 const ESCAPE_MS = 1500; // stuck: back out for this long before planning again
 const REACH = 0.12; // a waypoint counts as reached inside this radius
 const REPLAN_MS = 1500;
 const MAX_TURN = 1; // command units, scaled by the duck system
-const CREEP = 0.25; // forward command while turning hard, to keep the gait going
-const SHARP_RIGHT = 1.2; // rad: a right turn sharper than this goes round to the left instead
+const TURN_GAIN = 2; // turn command per radian off the aim point
 const CRUISE = 0.85;
+// The walking policy keeps stepping at any command from about this forward
+// speed up; below it a turn (a right one above all) can stall the gait.
+const WALK_MIN = 0.6;
+const SHARP = 0.6; // rad off the aim point: slow down to WALK_MIN while turning at full rate
+// A sharper corner is a pivot: backing up while turning, which both brains do
+// tightly and to either side (a right turn while walking forward is weak in a
+// brain fine-tuned on right-turn falls). Hysteresis keeps it from flickering.
+const PIVOT_IN = 1.05; // rad off the aim point
+const PIVOT_OUT = 0.45;
+const PIVOT_BACK = -0.6; // forward command while pivoting
+// Each gate is approached from in front, so the duck walks through it.
+const APPROACH = 0.25; // metres before the gate
+const APPROACH_REACH = 0.14;
+// Neither brain reliably starts stepping from a standstill on a straight
+// command; one that turns does. A stalled start gets a short turning kick.
+const STALL_SPEED = 0.02; // m/s
+const STALL_MS = 600;
+const KICK_MS = 700;
+const KICK_TURN = 0.8;
+// Crumbs are a bonus: never turn back for one, nor go far out of the way.
+const CRUMB_BEHIND = 1.75; // rad off the heading: left behind
+const CRUMB_MISSED = 1.05; // rad off the heading when this close: missed, not circled
+const CRUMB_CLOSE = 0.22; // metres
+const CRUMB_DETOUR = 1.8; // a path this many times longer than the straight line: skipped
+const CRUMB_STUCK_MS = 4000; // no progress towards a crumb for this long: skipped
+const CRUMB_TURN = 1.75; // rad: a crumb that needs a turn this sharp to go on from is not worth it
+const CRUMB_EXTRA = 0.3; // metres a crumb may add to the way to the next gate or the finish
 const STUCK_MS = 8000; // no progress towards the target for this long
+const STATUS_MS = 4000; // how long "finished" stays on the HUD
 const PROGRESS = 0.08; // metres closer that counts as progress
 const GRID_MS = 2000; // rebuild the map this often (the terrain changes live)
 const WHISKER = 0.16; // metres ahead the duck must see clear floor to keep walking
 const LOOK = 0.45; // how far the whiskers reach
 
 export type NavTask = 'course' | 'player' | 'explore' | 'goto' | null;
+
+interface Waypoint {
+  x: number;
+  y: number;
+  through: boolean;
+  reach: number;
+  optional?: boolean;
+  /** A point in front of a gate: reached once close, or once level with it. */
+  approach?: boolean;
+  /** Approach points move off obstacles once the map exists; crumbs are judged once. */
+  settled?: boolean;
+}
 const VISIT_RADIUS = 0.3; // cells this close to the duck count as visited
 const EXPLORE_MIN = 0.35; // the next unvisited spot must be at least this far
 
@@ -92,15 +131,34 @@ export class NavSystem extends createSystem({
   private terrain: TerrainSystem | undefined;
   private grid: Grid | null = null;
   private gridBuiltAt = 0;
-  /** Course targets in order; `through` ones (gates) count only once passed, not just approached. */
-  /** Course targets in order; optional ones (crumbs) are skipped when they cannot be reached cleanly. */
-  private waypoints: { x: number; y: number; through: boolean; reach: number; optional?: boolean }[] = [];
+  /**
+   * Course targets in order: `through` ones (gates) count only once passed,
+   * not just approached; each has an approach point in front of it; optional
+   * ones (crumbs) are skipped when they cannot be reached cleanly.
+   */
+  private waypoints: Waypoint[] = [];
   /** Whether the last plan reached its goal (otherwise it is a straight line there). */
   private planFound = false;
   private escapeTurn = 0.4;
+  /** The planned path, straightened (the duck's position first, the target last). */
   private path: [number, number][] = [];
+  /** The path segment the duck is on. */
   private pathIndex = 0;
+  /** Length of the last plan, and of the straight line it replaces (for crumb detours). */
+  private pathLength = 0;
+  private straightLength = 0;
   private plannedAt = 0;
+  /** The duck's speed over the ground (m/s, smoothed), from its pose. */
+  private speed = 0;
+  private lastX = 0;
+  private lastY = 0;
+  private lastAt = 0;
+  private stalledSince = 0;
+  private kickUntil = 0;
+  private kickTurn = 0;
+  private pivoting = false;
+  /** When a finished task's status line goes (0: it stays). */
+  private statusUntil = 0;
   private v!: Vector3;
   private q!: Quaternion;
   private inverse!: Matrix4;
@@ -136,12 +194,15 @@ export class NavSystem extends createSystem({
   runCourse(): void {
     const stage = this.stage();
     if (!stage) return;
-    const points: { x: number; y: number; through: boolean; reach: number; optional?: boolean }[] = [];
+    const points: Waypoint[] = [];
     const add = (set: Set<Entity>, through: boolean) => {
       for (const entity of set) {
         const p = entity.object3D?.position;
+        if (!p) continue;
         // Crumbs: walk over them when there is room; a crumb squeezed between pieces is skipped.
-        if (p) points.push({ x: p.x, y: -p.z, through, reach: through ? REACH * 1.6 : 0.09, optional: !through });
+        points.push({ x: p.x, y: -p.z, through, reach: through ? REACH * 1.6 : 0.09, optional: !through });
+        // A gate: line up in front of it first.
+        if (through) points.push({ x: p.x - APPROACH, y: -p.z, through: false, reach: APPROACH_REACH, approach: true });
       }
     };
     add(this.queries.crumbs.entities, false);
@@ -152,7 +213,7 @@ export class NavSystem extends createSystem({
     const finish = this.queries.finishes.entities.values().next().value as Entity | undefined;
     const fp = finish?.object3D?.position;
     this.waypoints = points;
-    if (fp) this.waypoints.push({ x: fp.x, y: -fp.z, through: false, reach: 0.07 }); // stand on the pad
+    if (fp) this.waypoints.push({ x: fp.x, y: -fp.z, through: false, reach: 0.1 }); // stand on the pad
     this.task = 'course';
     this.path = [];
     this.status = this.taskStatus = 'Autopilot: running the course';
@@ -205,8 +266,17 @@ export class NavSystem extends createSystem({
     return true;
   }
 
+  /** Ends the task, saying how it ended for a few seconds. */
+  private finish(status: string, now: number): void {
+    this.stop();
+    this.status = status;
+    this.statusUntil = now + STATUS_MS;
+  }
+
   stop(): void {
     if (this.task) this.status = '';
+    this.statusUntil = 0;
+    if (this.duck) this.duck.autopilotLook = null;
     this.task = null;
     this.path = [];
     this.waypoints = [];
@@ -229,6 +299,10 @@ export class NavSystem extends createSystem({
     if (keys.getKeyDown('KeyE')) this.task === 'explore' ? this.stop() : this.explore();
     if (keys.getKeyDown('KeyG') && !this.goUnderTable()) this.status = 'Autopilot: no table in the scan';
     if (keys.getKeyDown('Escape')) this.stop();
+    if (!this.task && this.statusUntil && performance.now() > this.statusUntil) {
+      this.status = '';
+      this.statusUntil = 0;
+    }
     if (!this.task || !duck?.hasPose || !duck.sim) {
       return;
     }
@@ -246,13 +320,20 @@ export class NavSystem extends createSystem({
     const p = duck.pose;
     const x = p[0];
     const y = p[1];
+    if (this.lastAt && now > this.lastAt) {
+      const dt = (now - this.lastAt) / 1000;
+      const v = Math.hypot(x - this.lastX, y - this.lastY) / dt;
+      this.speed += (v - this.speed) * Math.min(1, dt / 0.4);
+    }
+    this.lastX = x;
+    this.lastY = y;
+    this.lastAt = now;
     if (this.task === 'explore') {
       this.markVisited(x, y);
       if (!this.waypoints.length || this.reachedExploreTarget(x, y)) {
         const next = this.nextUnvisited(x, y);
         if (!next) {
-          this.status = 'Autopilot: explored everything it can reach';
-          this.stop();
+          this.finish('Autopilot: explored everything it can reach', now);
           return;
         }
         this.waypoints = [{ x: next[0], y: next[1], through: false, reach: 0.15 }];
@@ -273,34 +354,37 @@ export class NavSystem extends createSystem({
         const w = this.waypoints[0];
         const reached = w.through
           ? x > w.x + 0.03 && Math.abs(w.y - y) < 0.3 // past the posts, between them (not around)
-          : Math.hypot(w.x - x, w.y - y) < w.reach;
+          : Math.hypot(w.x - x, w.y - y) < w.reach || (!!w.approach && x > w.x && Math.abs(w.y - y) < APPROACH_REACH);
         if (!reached) break;
         this.waypoints.shift();
         this.path = [];
         this.bestDistance = Infinity; // a new target: progress starts over
       }
       if (!this.waypoints.length) {
-        this.status = this.task === 'goto' ? 'Autopilot: arrived' : 'Autopilot: finished';
-        this.stop();
+        this.finish(this.task === 'goto' ? 'Autopilot: arrived' : 'Autopilot: finished', now);
         return;
       }
       const w = this.waypoints[0];
+      if (w.approach && !w.settled && this.grid) this.settleApproach(w);
       // Aim through a gate: a little past its centre, so the approach lines up.
       this.target[0] = w.through ? w.x + PASS_BEYOND : w.x;
       this.target[1] = w.y;
     }
     const distance = Math.hypot(this.target[0] - x, this.target[1] - y);
+    // How far is left to walk: along the last plan when there is one (a detour
+    // round an obstacle first leads away from the target), else as the crow flies.
+    const remaining = this.planFound && this.path.length > 1 ? this.pathLength : distance;
     if (duck.sim.mode !== 'walk') {
       this.progressAt = now; // getting up or sitting is not being stuck
     }
-    if (distance < this.bestDistance - PROGRESS || this.bestDistance === Infinity) {
-      this.bestDistance = distance;
+    if (remaining < this.bestDistance - PROGRESS || this.bestDistance === Infinity) {
+      this.bestDistance = remaining;
       this.progressAt = now;
       if (this.stuck) {
         this.stuck = false;
         this.status = this.taskStatus; // back on track
       }
-    } else if (!this.stuck && now - this.progressAt > STUCK_MS) {
+    } else if (!this.stuck && now - this.progressAt > (this.task === 'course' && this.waypoints[0]?.optional ? CRUMB_STUCK_MS : STUCK_MS)) {
       // Wedged against something: back out, turning away from it, then plan again.
       this.escapeUntil = now + ESCAPE_MS;
       this.escapeTurn = this.blockedSide(x, y, this.headingOf(p)) > 0 ? -0.5 : 0.5;
@@ -315,61 +399,198 @@ export class NavSystem extends createSystem({
     }
     if (now < this.escapeUntil) {
       duck.autopilot = { forward: -0.6, turn: this.escapeTurn };
+      duck.autopilotLook = null;
       return;
     }
     if (this.task === 'player' && distance < 0.45) {
       duck.autopilot = { forward: 0, turn: 0 };
+      duck.autopilotLook = null; // arrived: it looks at you again
       this.status = 'Autopilot: here!';
       return;
     }
-    if (!this.path.length || now - this.plannedAt > REPLAN_MS) {
-      this.path = this.plan([x, y], this.target);
-      this.pathIndex = 0;
-      this.plannedAt = now;
-      // No clean way to a crumb (squeezed between pieces): skip it rather than walk straight at it.
-      if (!this.planFound && this.task === 'course' && this.waypoints[0]?.optional) {
+    const yaw = this.headingOf(p);
+    if (this.task === 'course' && this.waypoints[0]?.optional) {
+      // A crumb behind the duck, or one it is about to walk past, is left: turning
+      // back for a bonus is what made the autopilot circle.
+      let off = Math.atan2(this.target[1] - y, this.target[0] - x) - yaw;
+      off = Math.abs(Math.atan2(Math.sin(off), Math.cos(off)));
+      if (off > CRUMB_BEHIND || (distance < CRUMB_CLOSE && off > CRUMB_MISSED)) {
         this.skipWaypoint();
         return;
       }
     }
-    // Pure pursuit: aim at the first path point far enough ahead, so a dense
-    // path through a narrow gap is followed cell by cell.
-    while (this.pathIndex < this.path.length - 1 && Math.hypot(this.path[this.pathIndex][0] - x, this.path[this.pathIndex][1] - y) < PURSUIT) {
-      this.pathIndex++;
+    if (!this.path.length || now - this.plannedAt > REPLAN_MS) {
+      const w0 = this.waypoints[0];
+      if (this.task === 'course' && w0?.optional && !w0.settled) {
+        w0.settled = true;
+        if (!this.crumbOnTheWay(x, y)) {
+          this.skipWaypoint();
+          return;
+        }
+      }
+      this.path = this.plan([x, y], this.target);
+      this.pathIndex = 0;
+      this.plannedAt = now;
+      // No clean way to a crumb (squeezed between pieces), or a long way round to
+      // it: skip it rather than walk straight at it or detour for it.
+      if (this.task === 'course' && this.waypoints[0]?.optional && (!this.planFound || this.pathLength > CRUMB_DETOUR * this.straightLength + 0.1)) {
+        this.skipWaypoint();
+        return;
+      }
     }
-    const next = this.path[this.pathIndex] ?? this.target;
-    const yaw = this.headingOf(p);
-    let error = Math.atan2(next[1] - y, next[0] - x) - yaw;
+    // Pure pursuit on the straightened path: steer for the point LOOKAHEAD
+    // along it, so corners become arcs and the duck never aims at a point
+    // beside or behind itself.
+    const aim = this.lookahead(x, y);
+    let error = Math.atan2(aim[1] - y, aim[0] - x) - yaw;
     error = Math.atan2(Math.sin(error), Math.cos(error));
-    let turn = Math.max(-MAX_TURN, Math.min(MAX_TURN, error * 1.6));
-    let forward = CRUISE * Math.cos(error) * Math.min(1, distance / 0.35 + 0.3);
-    if (Math.abs(error) > 1.0) {
-      // A big heading change. The walking policy will not start stepping from
-      // a standstill for a yaw command alone (it does for a full-rate turn to
-      // the left, unreliably to the right), but it always starts with some
-      // forward speed, and once stepping it turns at any rate. So creep
-      // forward while turning at full rate.
-      forward = CREEP;
-      // A sharp right turn from a crawl often stalls the gait; a full-rate left
-      // turn never does, so swing round the long way (it costs a few seconds).
-      turn = error > 0 || error < -SHARP_RIGHT ? MAX_TURN : -MAX_TURN;
+    let turn = Math.max(-MAX_TURN, Math.min(MAX_TURN, error * TURN_GAIN));
+    // Full walking pace, a little slower round a sharp corner; never a crawl:
+    // the policy stalls below WALK_MIN (a right turn above all).
+    let forward = Math.abs(error) > SHARP ? WALK_MIN : CRUISE;
+    // A sharp corner, or a target beside or behind: pivot towards it, backing
+    // up while turning (never the long way round), unless something is behind.
+    this.pivoting = Math.abs(error) > (this.pivoting ? PIVOT_OUT : PIVOT_IN);
+    if (this.pivoting) {
+      turn = error > 0 ? MAX_TURN : -MAX_TURN;
+      forward = this.roomBehind(x, y, yaw) ? PIVOT_BACK : WALK_MIN;
     }
     // Whiskers: something sensed right in front (a ball just dropped there)
     // stops the walk and turns towards the freer side, before the plan catches up.
+    // A turn on the spot only starts the gait to the left, so left wins ties.
     this.whiskers[0] = this.range(x, y, yaw);
     this.whiskers[1] = this.range(x, y, yaw + 0.6);
     this.whiskers[2] = this.range(x, y, yaw - 0.6);
     if (forward > 0 && this.whiskers[0] < WHISKER) {
       forward = 0;
-      turn = this.whiskers[1] >= this.whiskers[2] ? MAX_TURN * 0.7 : -MAX_TURN * 0.7;
+      turn = this.whiskers[1] >= this.whiskers[2] * 0.7 ? MAX_TURN : -MAX_TURN;
       this.path = []; // replan around it next frame
     }
+    // A stalled start (standing, asked to walk): a short turning kick gets it stepping.
+    if (forward > 0 && this.speed < STALL_SPEED && duck.sim.mode === 'walk') {
+      if (!this.stalledSince) this.stalledSince = now;
+      else if (now - this.stalledSince > STALL_MS) {
+        this.kickUntil = now + KICK_MS;
+        this.kickTurn = turn < -0.2 ? -KICK_TURN : KICK_TURN;
+        this.stalledSince = 0;
+      }
+    } else {
+      this.stalledSince = 0;
+    }
+    if (now < this.kickUntil) {
+      forward = CRUISE;
+      turn = this.kickTurn;
+    }
     duck.autopilot = { forward, turn };
+    duck.autopilotLook = error;
+  }
+
+  /**
+   * The point LOOKAHEAD metres along the path beyond the duck's nearest point
+   * on it (the path's end, or the target, when less is left).
+   */
+  private lookahead(x: number, y: number): [number, number] {
+    const path = this.path;
+    if (path.length < 2) return path[0] ?? this.target;
+    let best = this.pathIndex;
+    let bestD = Infinity;
+    let bestU = 0;
+    for (let i = this.pathIndex; i < path.length - 1 && i < this.pathIndex + 4; i++) {
+      const [ax, ay] = path[i];
+      const dx = path[i + 1][0] - ax;
+      const dy = path[i + 1][1] - ay;
+      const u = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy || 1e-9)));
+      const d = Math.hypot(ax + u * dx - x, ay + u * dy - y);
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+        bestU = u;
+      }
+    }
+    this.pathIndex = best;
+    let left = LOOKAHEAD;
+    let px = path[best][0] + bestU * (path[best + 1][0] - path[best][0]);
+    let py = path[best][1] + bestU * (path[best + 1][1] - path[best][1]);
+    for (let i = best + 1; i < path.length; i++) {
+      const step = Math.hypot(path[i][0] - px, path[i][1] - py);
+      if (step >= left) {
+        const k = left / step;
+        return [px + (path[i][0] - px) * k, py + (path[i][1] - py) * k];
+      }
+      left -= step;
+      px = path[i][0];
+      py = path[i][1];
+    }
+    return path[path.length - 1];
   }
 
   /** The duck's heading in the stage frame, from its pose (x y z, then the quaternion w x y z). */
   private headingOf(p: ArrayLike<number>): number {
     return Math.atan2(2 * (p[3] * p[6] + p[4] * p[5]), 1 - 2 * (p[5] * p[5] + p[6] * p[6]));
+  }
+
+  /**
+   * Whether the crumb ahead is on the way: reachable, no U-turn to go on from
+   * it, and not much longer than walking straight on to the next gate or the
+   * finish.
+   */
+  private crumbOnTheWay(x: number, y: number): boolean {
+    const crumb = this.waypoints[0];
+    const next = this.waypoints.find((w) => !w.optional);
+    if (!next) return true;
+    const onward: [number, number] = [next.through ? next.x + PASS_BEYOND : next.x, next.y];
+    const there = this.plan([x, y], [crumb.x, crumb.y]);
+    if (!this.planFound) return false;
+    const a = this.pathLength;
+    const on = this.plan([crumb.x, crumb.y], onward);
+    if (!this.planFound) return false;
+    const b = this.pathLength;
+    this.plan([x, y], onward);
+    const direct = this.planFound ? this.pathLength : Infinity;
+    const from = there.length > 1 ? there[there.length - 2] : [x, y];
+    const to = on.length > 1 ? on[1] : onward;
+    const into = Math.atan2(crumb.y - from[1], crumb.x - from[0]);
+    const out = Math.atan2(to[1] - crumb.y, to[0] - crumb.x);
+    const bend = Math.abs(Math.atan2(Math.sin(out - into), Math.cos(out - into)));
+    return bend < CRUMB_TURN && a + b < direct + CRUMB_EXTRA;
+  }
+
+  /** Moves a gate's approach point off any obstacle, to the nearest free cell in front of the gate. */
+  private settleApproach(w: Waypoint): void {
+    const grid = this.grid!;
+    w.settled = true;
+    const free = (px: number, py: number) => {
+      const i = Math.floor((px - grid.x0) / CELL);
+      const j = Math.floor((py - grid.y0) / CELL);
+      return i >= 0 && j >= 0 && i < grid.cols && j < grid.rows && !grid.blocked[j * grid.cols + i];
+    };
+    if (free(w.x, w.y)) return;
+    for (let r = CELL; r <= 0.2; r += CELL) {
+      for (let k = 0; k < 16; k++) {
+        const a = (k / 16) * Math.PI * 2;
+        const px = w.x + Math.cos(a) * r;
+        const py = w.y + Math.sin(a) * r;
+        if (px <= w.x + 0.05 && free(px, py)) {
+          w.x = px;
+          w.y = py;
+          return;
+        }
+      }
+    }
+  }
+
+  /** Whether there is floor behind the duck to back into while it pivots. */
+  private roomBehind(x: number, y: number, heading: number): boolean {
+    const grid = this.grid;
+    if (!grid) return true;
+    for (const angle of [Math.PI, Math.PI - 0.5, Math.PI + 0.5]) {
+      for (const d of [0.1, 0.17]) {
+        const i = Math.floor((x + Math.cos(heading + angle) * d - grid.x0) / CELL);
+        const j = Math.floor((y + Math.sin(heading + angle) * d - grid.y0) / CELL);
+        if (i < 0 || j < 0 || i >= grid.cols || j >= grid.rows || grid.solid[j * grid.cols + i]) return false;
+      }
+    }
+    return true;
   }
 
   /** Drop the course target ahead (an optional crumb) and head for the next one. */
@@ -637,13 +858,49 @@ export class NavSystem extends createSystem({
       }
     }
     this.planFound = found;
-    if (!found) return [to];
-    const out: [number, number][] = [];
-    for (let n = goal; n !== -1 && n !== start; n = came[n]) {
-      out.push([grid.x0 + ((n % grid.cols) + 0.5) * CELL, grid.y0 + (Math.floor(n / grid.cols) + 0.5) * CELL]);
+    this.straightLength = Math.hypot(to[0] - from[0], to[1] - from[1]);
+    if (!found) {
+      this.pathLength = this.straightLength;
+      return [from, [to[0], to[1]]];
     }
-    out.reverse();
-    out.push(to);
+    const cells: [number, number][] = [from];
+    const back: [number, number][] = [];
+    for (let n = goal; n !== -1 && n !== start; n = came[n]) {
+      back.push([grid.x0 + ((n % grid.cols) + 0.5) * CELL, grid.y0 + (Math.floor(n / grid.cols) + 0.5) * CELL]);
+    }
+    for (let k = back.length - 1; k >= 0; k--) cells.push(back[k]);
+    cells.push([to[0], to[1]]);
+    // String pulling: from each corner, the farthest later point in plain sight.
+    const out: [number, number][] = [cells[0]];
+    for (let i = 0; i < cells.length - 1; ) {
+      let j = cells.length - 1;
+      while (j > i + 1 && !this.inSight(cells[i], cells[j], si, sj, gi, gj)) j--;
+      out.push(cells[j]);
+      i = j;
+    }
+    let length = 0;
+    for (let k = 1; k < out.length; k++) length += Math.hypot(out[k][0] - out[k - 1][0], out[k][1] - out[k - 1][1]);
+    this.pathLength = length;
     return out;
+  }
+
+  /**
+   * Whether the straight line from a to b crosses no obstacle the planner
+   * avoids (grown cells, except next to the start and at the goal, as in A*).
+   */
+  private inSight(a: [number, number], b: [number, number], si: number, sj: number, gi: number, gj: number): boolean {
+    const grid = this.grid;
+    if (!grid) return true;
+    const steps = Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / (CELL / 2));
+    for (let k = 1; k < steps; k++) {
+      const u = k / steps;
+      const i = Math.floor((a[0] + (b[0] - a[0]) * u - grid.x0) / CELL);
+      const j = Math.floor((a[1] + (b[1] - a[1]) * u - grid.y0) / CELL);
+      if (i < 0 || j < 0 || i >= grid.cols || j >= grid.rows) return false;
+      const m = j * grid.cols + i;
+      if (grid.solid[m]) return false;
+      if (grid.blocked[m] && !(i === gi && j === gj) && (Math.abs(i - si) > 2 || Math.abs(j - sj) > 2)) return false;
+    }
+    return true;
   }
 }

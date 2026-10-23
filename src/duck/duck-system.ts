@@ -151,6 +151,8 @@ export class DuckSystem extends createSystem({
   commanded = false;
   /** Set by the nav system to drive the duck when the player is not (command units, -1..1). */
   autopilot: { forward: number; turn: number } | null = null;
+  /** Where the autopilot is steering (radians off the heading, + left): the duck looks there. */
+  autopilotLook: number | null = null;
   /** The twist last sent to the walking policy: forward m/s and turn rad/s (robot panel). */
   commandVx = 0;
   commandWz = 0;
@@ -700,7 +702,11 @@ export class DuckSystem extends createSystem({
     const ly = -Math.sin(yaw) * dx + Math.cos(yaw) * dy;
     let bearing = Math.atan2(ly, lx);
     let elevation = Math.atan2(dz, Math.max(Math.hypot(lx, ly), 0.05));
-    if (now - this.lastInputAt > IDLE_AFTER_MS) {
+    if (this.autopilot && !this.commanded && this.autopilotLook !== null) {
+      // Driving itself: it looks where it is going, a little down at the floor ahead.
+      bearing = clamp(this.autopilotLook, -0.9, 0.9);
+      elevation = -0.15;
+    } else if (now - this.lastInputAt > IDLE_AFTER_MS) {
       bearing = 0.8 * Math.sin(now * 0.0009); // idle: look around
       elevation = 0.25 + 0.15 * Math.sin(now * 0.0013);
     } else if (Math.abs(bearing) > 1.75) {
