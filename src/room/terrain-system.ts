@@ -12,10 +12,11 @@
  * last height. The room scan's global mesh seeds the map before the sensor
  * has looked around.
  *
- * Two depth sources: CPU depth (the emulator, and headsets that offer it)
- * is read directly; GPU depth (the Quest) is copied through a small render
- * pass and read back. Press H (or the lab panel button) to see the map as
- * translucent blocks.
+ * Two depth sources: GPU depth (the Quest, and the emulator, which is asked
+ * for it so that it runs the Quest's code) is copied through a small render
+ * pass and read back; CPU depth (browsers that offer only that) is read
+ * directly. Press H (or the lab panel button) to see the map as translucent
+ * blocks.
  */
 import {
   BoxGeometry,
@@ -33,6 +34,7 @@ import {
   RGBAFormat,
   Scene,
   ShaderMaterial,
+  type Texture,
   Vector3,
   WebGLRenderTarget,
 } from '@iwsdk/core';
@@ -51,6 +53,7 @@ import {
   terrainX,
   terrainY,
 } from '../duck/terrain-spec.js';
+import { rasteriseMeshHeights } from './mesh-heights.js';
 import { RoomSystem } from './room-system.js';
 
 const UPDATE_MS = 100; // 10 Hz is plenty for things on the floor
@@ -61,9 +64,17 @@ const SMOOTH = 0.5; // per update, towards the newly seen height
 const DUCK_GUARD = 0.16; // never raise the ground under the duck
 const BALL_GUARD = BALL_RADIUS + 0.05;
 const MAX_BLOCKS = 4000; // debug view instances
+const BLOCK_RUN_TOLERANCE = 0.02; // cells in a row this close in height share a block
 const CELLS = TERRAIN_N * TERRAIN_N;
 const WALK_UNDER = 0.22; // a scanned collider whose bottom is above this is walked under
 const SPLAT = TERRAIN_CELL / 2; // sampling step when rasterising a collider
+/**
+ * GPU depth textures (the Quest, and the emulator when asked for GPU depth)
+ * store rows bottom-up, as WebGL does: row 0 is the bottom of the view. As a
+ * normalised-view -> depth-buffer transform (view y runs downwards) that is
+ * y' = 1 - y. IWSDK's occlusion shaders read the texture the same way.
+ */
+const GPU_BUFFER_FROM_VIEW = new Float32Array([1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 1]);
 
 /** What both depth paths produce: a depth image in metres plus its geometry. */
 interface DepthImage {
@@ -93,6 +104,8 @@ interface CpuDepthInfo extends DepthInfoLike {
 interface GpuDepthInfo extends DepthInfoLike {
   texture: WebGLTexture;
 }
+/** What the GPU path reads: the texture's size and scale, plus the Quest's near plane. */
+type GpuDepthSource = DepthInfoLike & { depthNear?: number };
 
 export class TerrainSystem extends createSystem({
   stages: { required: [DuckStage] },
@@ -128,6 +141,7 @@ export class TerrainSystem extends createSystem({
   private pixelIndex: Int32Array | null = null;
   private dirsKey = '';
   private metres: Float32Array | null = null;
+  private gpuMetres: Float32Array | null = null;
   private dirty = false;
   private lastSim: unknown = null;
   private seeded = false;
@@ -271,7 +285,7 @@ export class TerrainSystem extends createSystem({
     this.raised = raised;
     if (this.active) {
       this.summary =
-        `Terrain: ${this.usage} depth ${this.metres ? `${this.lastWidth}x${this.lastHeight}` : '-'} at ${this.updateHz.toFixed(1)} Hz, ` +
+        `Terrain: ${this.usage} depth ${this.lastWidth ? `${this.lastWidth}x${this.lastHeight}` : '-'} at ${this.updateHz.toFixed(1)} Hz, ` +
         `${raised} raised cells (${this.scanCells} from the scan), tallest ${tallest.toFixed(2)} m`;
     }
     if (this.blocks) this.layoutBlocks();
@@ -294,30 +308,30 @@ export class TerrainSystem extends createSystem({
     // World pose of the XR reference space: the eye's world matrix is refToWorld * view.transform.
     this.viewMatrix.fromArray(view.transform.matrix);
     this.refToWorld.copy(eye.matrixWorld).multiply(this.viewMatrix.clone().invert());
-    let info: DepthInfoLike | null = null;
-    let metres: Float32Array | null = null;
     if (usage === 'gpu-optimized') {
       this.usage = 'gpu';
-      return this.readGpuDepth(eye.matrixWorld);
-    } else {
-      const getter = frame as unknown as { getDepthInformation?: (view: XRView) => CpuDepthInfo | null | undefined };
-      const cpu = getter.getDepthInformation?.(view);
-      if (!cpu) return null;
-      const format = (session as { depthDataFormat?: string }).depthDataFormat ?? 'float32';
-      const count = cpu.width * cpu.height;
-      if (!this.metres || this.metres.length !== count) this.metres = new Float32Array(count);
-      metres = this.metres;
-      const scale = cpu.rawValueToMeters;
-      if (format === 'float32') {
-        const raw = new Float32Array(cpu.data, 0, count);
-        for (let i = 0; i < count; i++) metres[i] = raw[i] * scale;
-      } else {
-        const raw = new Uint16Array(cpu.data, 0, count);
-        for (let i = 0; i < count; i++) metres[i] = raw[i] * scale;
-      }
-      info = cpu;
-      this.usage = 'cpu';
+      const depthSystem = this.depthSystem as unknown as
+        | { getDepthTextureArray(): Texture | undefined; gpuDepthData: GpuDepthInfo[] }
+        | undefined;
+      return this.readGpuDepth(depthSystem?.getDepthTextureArray(), depthSystem?.gpuDepthData?.[0], eye.matrixWorld);
     }
+    const getter = frame as unknown as { getDepthInformation?: (view: XRView) => CpuDepthInfo | null | undefined };
+    const cpu = getter.getDepthInformation?.(view);
+    if (!cpu) return null;
+    const format = (session as { depthDataFormat?: string }).depthDataFormat ?? 'float32';
+    const count = cpu.width * cpu.height;
+    if (!this.metres || this.metres.length !== count) this.metres = new Float32Array(count);
+    const metres = this.metres;
+    const scale = cpu.rawValueToMeters;
+    if (format === 'float32') {
+      const raw = new Float32Array(cpu.data, 0, count);
+      for (let i = 0; i < count; i++) metres[i] = raw[i] * scale;
+    } else {
+      const raw = new Uint16Array(cpu.data, 0, count);
+      for (let i = 0; i < count; i++) metres[i] = raw[i] * scale;
+    }
+    const info = cpu;
+    this.usage = 'cpu';
     this.lastWidth = info.width;
     this.lastHeight = info.height;
     const projection = info.projectionMatrix ?? view.projectionMatrix;
@@ -338,30 +352,33 @@ export class TerrainSystem extends createSystem({
   }
 
   /**
-   * GPU depth: copy the texture array's first layer into a small float
-   * target and read it back without stalling (fence + pixel buffer). The
-   * image that comes back carries the sensor pose it was captured with, and
-   * is returned on a later call; one read is in flight at a time.
+   * GPU depth: copy the texture array's first layer (the left eye) into a
+   * small float target, converting to metres on the way, and read it back
+   * without stalling (fence + pixel buffer). The texture holds depth-buffer
+   * values with an infinite far plane, v = 1 - near / metres (0 = no reading),
+   * in rows bottom-up. The image that comes back carries the sensor pose it
+   * was captured with, and is returned on a later call; one read is in flight
+   * at a time.
    */
-  private readGpuDepth(eyeToWorld: Matrix4): DepthImage | null {
+  private readGpuDepth(texture: Texture | undefined, info: GpuDepthSource | undefined, eyeToWorld: Matrix4): DepthImage | null {
     if (this.gpuResult) {
       const result = this.gpuResult;
       this.gpuResult = null;
       return result;
     }
     if (this.gpuInFlight) return null;
-    const depthSystem = this.depthSystem as unknown as
-      | { getDepthTextureArray(): unknown; gpuDepthData: GpuDepthInfo[] }
-      | undefined;
-    const texture = depthSystem?.getDepthTextureArray();
-    const info = depthSystem?.gpuDepthData?.[0];
     if (!texture || !info) return null;
+    const near = info.depthNear;
+    if (near === undefined || !(near > 0)) {
+      this.warnGpu(new Error('GPU depth information without depthNear'));
+      return null;
+    }
     try {
       const renderer = this.world.renderer;
       if (!this.readMaterial) {
         this.readMaterial = new ShaderMaterial({
           name: 'DepthReadback',
-          uniforms: { uDepth: { value: null }, uScale: { value: 1 } },
+          uniforms: { uDepth: { value: null }, uScale: { value: 1 }, uNear: { value: 0.1 } },
           vertexShader: /* glsl */ `
             varying vec2 vUv;
             void main() {
@@ -373,10 +390,12 @@ export class TerrainSystem extends createSystem({
             precision highp sampler2DArray;
             uniform sampler2DArray uDepth;
             uniform float uScale;
+            uniform float uNear;
             varying vec2 vUv;
             void main() {
               float raw = texture(uDepth, vec3(vUv, 0.0)).r;
-              gl_FragColor = vec4(raw * uScale, 0.0, 0.0, 1.0);
+              float metres = raw > 0.0 && raw < 1.0 ? uScale * uNear / (1.0 - raw) : 0.0;
+              gl_FragColor = vec4(metres, 0.0, 0.0, 1.0);
             }`,
           depthTest: false,
           depthWrite: false,
@@ -391,10 +410,11 @@ export class TerrainSystem extends createSystem({
         this.readTarget?.dispose();
         this.readTarget = new WebGLRenderTarget(width, height, { format: RGBAFormat, type: FloatType, depthBuffer: false });
         this.readPixels = new Float32Array(width * height * 4);
-        this.metres = new Float32Array(width * height);
+        this.gpuMetres = new Float32Array(width * height);
       }
       this.readMaterial.uniforms.uDepth.value = texture;
       this.readMaterial.uniforms.uScale.value = info.rawValueToMeters;
+      this.readMaterial.uniforms.uNear.value = near;
       const xrEnabled = renderer.xr.enabled;
       const previous = renderer.getRenderTarget();
       renderer.xr.enabled = false;
@@ -411,10 +431,10 @@ export class TerrainSystem extends createSystem({
         pose.copy(eyeToWorld);
       }
       const projection = info.projectionMatrix ?? this.world.renderer.xr.getCamera().cameras[0]?.projectionMatrix.toArray();
-      const bufferFromView = info.normDepthBufferFromNormView.matrix;
+      const bufferFromView = GPU_BUFFER_FROM_VIEW;
       const target = this.readTarget;
       const pixels = this.readPixels!;
-      const metres = this.metres!;
+      const metres = this.gpuMetres!;
       this.gpuInFlight = true;
       this.lastWidth = width;
       this.lastHeight = height;
@@ -605,7 +625,10 @@ export class TerrainSystem extends createSystem({
     this.dirty = true;
   }
 
-  /** The room scan's global mesh gives the map a start before the sensor has looked around. */
+  /**
+   * The room scan's global mesh gives the map a start before the sensor has
+   * looked around: its triangles fill the cells under them (mesh-heights.ts).
+   */
   private seedFromScan(): void {
     this.seeded = true;
     this.scanVersion = this.room?.scanVersion ?? -1;
@@ -614,21 +637,20 @@ export class TerrainSystem extends createSystem({
     if (!mesh || !position) return;
     mesh.updateWorldMatrix(true, false);
     const m = this.viewToStage.multiplyMatrices(this.stageInverse, mesh.matrixWorld);
-    const heights = this.heights;
-    let cells = 0;
-    for (let i = 0; i < position.count; i++) {
-      this.v.fromBufferAttribute(position, i).applyMatrix4(m);
-      const h = this.v.y;
-      if (h < TERRAIN_MIN_HEIGHT || h > TERRAIN_HEIGHT_CAP) continue;
-      const col = terrainCol(this.v.x);
-      const row = terrainRow(-this.v.z);
-      if (col < 0 || row < 0) continue;
-      const k = row * TERRAIN_N + col;
-      if (heights[k] < h) {
-        heights[k] = h;
-        cells++;
+    // Plain x y z triples (copied when the attribute is interleaved or padded).
+    let positions: ArrayLike<number> = position.array;
+    const interleaved = (position as { isInterleavedBufferAttribute?: boolean }).isInterleavedBufferAttribute === true;
+    if (interleaved || position.itemSize !== 3 || position.array.length !== position.count * 3) {
+      const flat = new Float32Array(position.count * 3);
+      for (let i = 0; i < position.count; i++) {
+        flat[i * 3] = position.getX(i);
+        flat[i * 3 + 1] = position.getY(i);
+        flat[i * 3 + 2] = position.getZ(i);
       }
+      positions = flat;
     }
+    const index = mesh.geometry.getIndex();
+    const cells = rasteriseMeshHeights(positions, index ? index.array : null, m.elements, this.heights);
     if (cells) {
       this.dirty = true;
       console.info(`[terrain] seeded ${cells} cells from the room scan (${position.count} vertices)`);
@@ -661,25 +683,43 @@ export class TerrainSystem extends createSystem({
     this.layoutBlocks();
   }
 
-  /** One translucent block per raised cell, coloured by height (mint low, sky blue high). */
+  /**
+   * Translucent blocks over the raised cells, coloured by height (mint low,
+   * sky blue high). Neighbouring cells in a row that stand about as high share
+   * one block, so a whole room fits in MAX_BLOCKS.
+   */
   private layoutBlocks(): void {
     const blocks = this.blocks;
     if (!blocks) return;
     const heights = this.heights;
     const scan = this.scanHeights;
     let n = 0;
-    for (let i = 0; i < CELLS && n < MAX_BLOCKS; i++) {
-      const h = Math.max(heights[i], scan[i]);
-      if (h < TERRAIN_MIN_HEIGHT) continue;
-      const x = terrainX(i % TERRAIN_N);
-      const y = terrainY(Math.floor(i / TERRAIN_N));
-      this.blockMatrix.makeScale(TERRAIN_CELL * 0.9, h, TERRAIN_CELL * 0.9);
-      this.blockMatrix.setPosition(x, h / 2, -y);
-      blocks.setMatrixAt(n, this.blockMatrix);
-      // Mint for low steps, sky blue for walls: the HUD's palette, not a warning red.
-      const t = Math.min(1, h / TERRAIN_HEIGHT_CAP);
-      blocks.setColorAt(n, this.blockColor.setHSL(0.46 + 0.12 * t, 0.75, 0.62 - 0.12 * t));
-      n++;
+    for (let row = 0; row < TERRAIN_N && n < MAX_BLOCKS; row++) {
+      const base = row * TERRAIN_N;
+      let col = 0;
+      while (col < TERRAIN_N && n < MAX_BLOCKS) {
+        const h = Math.max(heights[base + col], scan[base + col]);
+        if (h < TERRAIN_MIN_HEIGHT) {
+          col++;
+          continue;
+        }
+        let end = col + 1;
+        let top = h;
+        while (end < TERRAIN_N) {
+          const next = Math.max(heights[base + end], scan[base + end]);
+          if (next < TERRAIN_MIN_HEIGHT || Math.abs(next - h) > BLOCK_RUN_TOLERANCE) break;
+          if (next > top) top = next;
+          end++;
+        }
+        this.blockMatrix.makeScale(TERRAIN_CELL * (end - col - 0.1), top, TERRAIN_CELL * 0.9);
+        this.blockMatrix.setPosition((terrainX(col) + terrainX(end - 1)) / 2, top / 2, -terrainY(row));
+        blocks.setMatrixAt(n, this.blockMatrix);
+        // Mint for low steps, sky blue for walls: the HUD's palette, not a warning red.
+        const t = Math.min(1, top / TERRAIN_HEIGHT_CAP);
+        blocks.setColorAt(n, this.blockColor.setHSL(0.46 + 0.12 * t, 0.75, 0.62 - 0.12 * t));
+        n++;
+        col = end;
+      }
     }
     blocks.count = n;
     blocks.instanceMatrix.needsUpdate = true;

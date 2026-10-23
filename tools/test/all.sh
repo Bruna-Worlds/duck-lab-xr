@@ -40,6 +40,8 @@ echo "== physics worker reused across playgrounds (desktop)"
 npx @iwsdk/cli browser run tools/test/worker-reuse-check.mjs --timeout 100000 2>&1 | tally worker-reuse
 echo "== layout (2D HUD at several window sizes, in its own browser)"
 node tools/test/layout-check.mjs 2>&1 | tally layout
+echo "== room mesh fills the terrain map (desktop)"
+npx @iwsdk/cli browser run tools/test/mesh-heights-check.mjs --timeout 100000 2>&1 | tally mesh-heights
 echo "== terrain and room colliders (emulated mixed reality)"
 bash tools/test/mr.sh tools/test/terrain-check.mjs 14 2>&1 | tally terrain
 echo "== scene understanding: scan, placement, duck camera (emulated mixed reality)"

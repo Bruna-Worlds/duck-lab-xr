@@ -19,7 +19,7 @@
         "anchors": true,
         "depthSensing": {
           "required": false,
-          "usage": "cpu-optimized",
+          "usage": "gpu-optimized",
           "format": "float32"
         }
       },

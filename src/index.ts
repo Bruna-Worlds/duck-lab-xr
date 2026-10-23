@@ -37,9 +37,9 @@ import { TelemetrySystem } from './dev/telemetry-system.js';
 import { headsetLanding } from './ui/page-mode.js';
 
 /**
- * The project config names one depth-sensing usage, but the emulator serves
- * CPU depth and the Quest GPU depth: widen every session request so either
- * works (the first supported entry wins).
+ * GPU depth first: the Quest offers only that, and asking the emulator for it
+ * too means the emulator runs the Quest's code path. CPU depth stays as a
+ * fallback for browsers that offer only that (the first supported entry wins).
  */
 function preferEitherDepth(): void {
   const xr = navigator.xr as (XRSystem & { offerSession?: XRSystem['requestSession'] }) | undefined;
@@ -48,7 +48,7 @@ function preferEitherDepth(): void {
   const widen = (init?: XRSessionInit) => {
     const depth = (init as { depthSensing?: DepthInit } | undefined)?.depthSensing;
     if (depth) {
-      depth.usagePreference = ['cpu-optimized', 'gpu-optimized'];
+      depth.usagePreference = ['gpu-optimized', 'cpu-optimized'];
       depth.dataFormatPreference = ['float32', 'luminance-alpha'];
     }
     return init;
