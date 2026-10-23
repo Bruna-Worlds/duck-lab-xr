@@ -1,0 +1,82 @@
+# Dependencies
+node_modules/
+.pnpm-debug.log*
+
+# Build outputs
+dist/
+*.tsbuildinfo
+
+# Environment files and secrets: tokens, keys, certificates, signing keystores
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.keystore
+*.jks
+
+# Store and hosting builds (PWA / TWA packaging, Vercel)
+*.apk
+*.aab
+.vercel/
+
+# IDE and OS files
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Logs and coverage
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+coverage/
+*.lcov
+
+# Runtime and temporary data
+pids/
+*.pid
+*.seed
+*.pid.lock
+.tmp/
+.temp/
+tools/test/tmp/
+# IWSDK dev state, including the local HTTPS certificate and key
+.iwsdk/
+
+# Python and Blender leftovers
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.blend1
+
+# MCP and agent configs generated per machine (absolute local paths)
+.mcp.json
+.cursor/mcp.json
+.vscode/mcp.json
+.codex/config.toml
+opencode.json
+.claude/settings.local.json
+
+# Dev-only models and test photos (licence unclear; never deploy)
+public/models/dev-only/
+
+# Policies trained locally from the player's own room (Duck Lab XR); never deploy
+public/policies/incoming/
+
+# Internal design notes and plans (kept local, not published)
+docs/
+
+# Recordings, screenshots, telemetry, datasets and test output
+artifacts/
+# Scenario packs hold a player's room scan: never commit one, wherever it lands
+*.scenario.json

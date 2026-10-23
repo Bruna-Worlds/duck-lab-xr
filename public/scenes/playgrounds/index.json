@@ -1,0 +1,32 @@
+[
+  {
+    "id": "living-room-dash",
+    "title": "Living Room Dash",
+    "mode": "both",
+    "par": 45,
+    "blurb": "Weave the books, pass the gates, kick the ball in the goal, reach the flag."
+  },
+  {
+    "id": "sneaker-alley",
+    "title": "Sneaker Alley",
+    "mode": "both",
+    "par": 55,
+    "blurb": "Slalom the shoes, dodge the dinosaurs, score past the cereal box.",
+    "credits": "Shoes and toys: Google Scanned Objects (CC BY 4.0)"
+  },
+  {
+    "id": "backyard",
+    "title": "Backyard",
+    "mode": "vr",
+    "par": 60,
+    "blurb": "Under the picnic table, past the gnome, score by the crate, meet the rubber duck.",
+    "credits": "Backyard models and textures: Poly Haven (CC0)"
+  },
+  {
+    "id": "free-roam",
+    "title": "Your Room",
+    "mode": "mr",
+    "par": 600,
+    "blurb": "No course: your room is the playground. Walls and furniture are solid, the floor is sensed live. Explore sends the duck roaming."
+  }
+]

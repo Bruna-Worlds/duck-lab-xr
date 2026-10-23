@@ -1,0 +1,105 @@
+<!-- Copyright 2026 BRUNA GOODS LLC. SPDX-License-Identifier: Apache-2.0 -->
+<!--
+  Robot panel ("Pip cam"): what the duck's head camera sees, plus its live
+  state. Tabs over the feed pick the view: MOTION (the room as the walking
+  brain's physics knows it) or VISION (a camera view with the objects in
+  sight labelled). Three sizes: camera only (minimised), camera and status (default),
+  and camera, status and the technical details: the walking policy's output,
+  the IMU and foot sensors, the servos and the autopilot. In a headset it
+  floats over the duck and turns to face the player; drag the bar under it
+  to pin it anywhere. Element ids are read by src/ui/robot-panel-system.ts.
+  Keep copy in plain ASCII.
+-->
+<style>
+  @font-face { font-family: bebas; src: url("../fonts/BebasNeue-Regular.ttf"); font-weight: 400; }
+
+  .card { flex-direction: column; width: 300px; padding-top: 9px; padding-bottom: 10px; padding-left: 10px; padding-right: 10px; gap: 7px; background-color: #0f1020; border-radius: 22px; border-width: 2px; border-color: rgba(111, 183, 255, 0.55); font-family: nunito; }
+
+  .bar { flex-direction: row; align-items: center; gap: 6px; padding-left: 4px; }
+  .live { width: 8px; height: 8px; border-radius: 4px; background-color: #ff5c8a; }
+  .title { font-family: bebas; font-size: 20px; letter-spacing: 1px; color: #fff4dc; padding-top: 2px; }
+  .mode { font-family: bebas; font-size: 13px; letter-spacing: 1px; color: #0f1020; background-color: #3de0b8; border-radius: 999px; padding-left: 9px; padding-right: 9px; padding-top: 3px; padding-bottom: 1px; }
+  .spacer { flex-grow: 1; }
+  .icon { width: 28px; height: 28px; border-radius: 14px; align-items: center; justify-content: center; background-color: rgba(255, 244, 220, 0.08); border-width: 1px; border-color: rgba(255, 244, 220, 0.22); cursor: pointer; }
+  .icon:hover { background-color: rgba(255, 244, 220, 0.22); }
+  .glyph { width: 15px; height: 15px; color: #fff4dc; }
+
+  .tabs { flex-direction: row; align-items: center; gap: 5px; padding-left: 2px; padding-right: 4px; }
+  .tab { font-family: bebas; font-size: 12px; letter-spacing: 1px; color: #fff4dc; background-color: rgba(255, 244, 220, 0.08); border-width: 1px; border-color: rgba(255, 244, 220, 0.22); border-radius: 999px; padding-left: 9px; padding-right: 9px; padding-top: 3px; padding-bottom: 1px; cursor: pointer; flex-shrink: 0; }
+  .tab-note { font-size: 10px; font-weight: 700; color: rgba(255, 244, 220, 0.6); flex-grow: 1; flex-shrink: 1; text-align: right; }
+
+  .feed { width: 276px; height: 207px; border-radius: 14px; background-color: #1c1d36; }
+
+  .offer { flex-direction: row; align-items: center; gap: 6px; padding-top: 7px; padding-bottom: 7px; padding-left: 10px; padding-right: 7px; border-radius: 14px; background-color: #ffcf3f; }
+  .offer-text { flex-direction: column; flex-grow: 1; flex-shrink: 1; gap: 1px; }
+  .offer-title { font-family: bebas; font-size: 15px; letter-spacing: 1px; color: #0f1020; }
+  .offer-note { font-size: 10px; font-weight: 700; color: rgba(15, 16, 32, 0.75); }
+  .offer-go { font-family: bebas; font-size: 14px; letter-spacing: 1px; color: #fff4dc; background-color: #0f1020; border-radius: 999px; padding-left: 10px; padding-right: 10px; padding-top: 5px; padding-bottom: 3px; cursor: pointer; flex-shrink: 0; }
+  .offer-go:hover { background-color: #34365a; }
+  .offer-later { font-family: bebas; font-size: 13px; letter-spacing: 1px; color: #0f1020; border-width: 1px; border-color: rgba(15, 16, 32, 0.45); border-radius: 999px; padding-left: 8px; padding-right: 8px; padding-top: 4px; padding-bottom: 2px; cursor: pointer; flex-shrink: 0; }
+  .brain-row { flex-direction: row; align-items: center; justify-content: space-between; gap: 6px; padding-left: 4px; }
+  .brain-name { font-size: 11px; font-weight: 800; color: #3de0b8; flex-shrink: 1; }
+  .revert { font-family: bebas; font-size: 12px; letter-spacing: 1px; color: #fff4dc; border-width: 1px; border-color: rgba(255, 244, 220, 0.3); border-radius: 999px; padding-left: 8px; padding-right: 8px; padding-top: 3px; padding-bottom: 1px; cursor: pointer; flex-shrink: 0; }
+  .revert:hover { background-color: rgba(255, 244, 220, 0.15); }
+
+  .status { flex-direction: column; gap: 3px; padding-left: 4px; padding-right: 4px; }
+  .line { flex-direction: row; gap: 8px; align-items: center; }
+  .k { font-family: bebas; font-size: 12px; letter-spacing: 1px; color: rgba(255, 244, 220, 0.5); width: 40px; padding-top: 1px; }
+  .v { font-size: 12px; font-weight: 700; color: #fff4dc; }
+
+  .details { flex-direction: column; gap: 4px; }
+  .section-row { flex-direction: row; justify-content: space-between; align-items: center; padding-left: 4px; padding-right: 4px; padding-top: 4px; }
+  .section { font-family: bebas; font-size: 13px; letter-spacing: 2px; color: #6fb7ff; flex-shrink: 0; }
+  .meta { font-size: 11px; font-weight: 600; color: rgba(255, 244, 220, 0.6); flex-shrink: 1; text-align: right; padding-left: 8px; }
+  .chart { width: 276px; height: 84px; border-radius: 10px; }
+  .chart-imu { width: 276px; height: 72px; border-radius: 10px; }
+  .chart-servo { width: 276px; height: 176px; border-radius: 10px; }
+  .note { font-size: 11px; font-weight: 600; color: rgba(255, 244, 220, 0.75); padding-left: 4px; padding-right: 4px; }
+  .hint { font-size: 10px; font-weight: 600; color: rgba(255, 244, 220, 0.45); padding-left: 4px; }
+</style>
+<div class="card">
+  <div class="bar">
+    <div class="live"></div>
+    <div class="title">PIP CAM</div>
+    <div id="rp-mode" class="mode">WALK</div>
+    <div class="spacer"></div>
+    <div id="rp-pin" class="icon"><Pin class="glyph"></Pin></div>
+    <div id="rp-more" class="icon"><ChevronUp class="glyph"></ChevronUp></div>
+    <div id="rp-less" class="icon" style="display: none"><ChevronDown class="glyph"></ChevronDown></div>
+    <div id="rp-min" class="icon"><Minimize2 class="glyph"></Minimize2></div>
+    <div id="rp-max" class="icon" style="display: none"><Maximize2 class="glyph"></Maximize2></div>
+  </div>
+  <div id="rp-offer" class="offer" style="display: none">
+    <div class="offer-text">
+      <div class="offer-title">NEW BRAIN READY</div>
+      <div id="rp-offer-note" class="offer-note">...</div>
+    </div>
+    <div id="rp-offer-try" class="offer-go">TRY IT</div>
+    <div id="rp-offer-later" class="offer-later">LATER</div>
+  </div>
+  <div class="tabs">
+    <div id="rp-view-motion" class="tab">MOTION</div>
+    <div id="rp-view-vision" class="tab">VISION</div>
+    <div id="rp-view-note" class="tab-note">The room as its physics knows it</div>
+  </div>
+  <img id="rp-feed" class="feed" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAARSURBVBhXY5CRNfsPwgwwBgAuBgW5KUFH0AAAAABJRU5ErkJggg==" />
+  <div id="rp-brain-row" class="brain-row" style="display: none">
+    <div id="rp-brain-name" class="brain-name">...</div>
+    <div id="rp-revert" class="revert">REVERT</div>
+  </div>
+  <div id="rp-status" class="status">
+    <div class="line"><div class="k">DRIVE</div><div id="rp-drive" class="v">Waiting for the duck...</div></div>
+    <div class="line"><div class="k">BRAIN</div><div id="rp-brain" class="v">Walking policy</div></div>
+  </div>
+  <div id="rp-details" class="details" style="display: none">
+    <div class="section-row"><div class="section">POLICY OUTPUT</div><div id="rp-policy" class="meta">...</div></div>
+    <img id="rp-actions" class="chart" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAARSURBVBhXY5CRNfsPwgwwBgAuBgW5KUFH0AAAAABJRU5ErkJggg==" />
+    <div class="section-row"><div class="section">IMU AND FEET</div><div id="rp-imu-meta" class="meta">...</div></div>
+    <img id="rp-imu" class="chart-imu" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAARSURBVBhXY5CRNfsPwgwwBgAuBgW5KUFH0AAAAABJRU5ErkJggg==" />
+    <div class="section-row"><div class="section">SERVOS</div><div id="rp-servo-meta" class="meta">angle, target, torque</div></div>
+    <img id="rp-servos" class="chart-servo" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAARSURBVBhXY5CRNfsPwgwwBgAuBgW5KUFH0AAAAABJRU5ErkJggg==" />
+    <div class="section-row"><div class="section">AUTOPILOT</div><div id="rp-nav-meta" class="meta">off</div></div>
+    <div id="rp-nav" class="note">Press Auto to let the duck drive itself.</div>
+  </div>
+  <div id="rp-hint" class="hint">Drag the bar to move it (near a wall it sticks on), the corner to resize. Pin: back to its spot.</div>
+</div>

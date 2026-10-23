@@ -1,0 +1,32 @@
+<!-- Copyright 2026 BRUNA GOODS LLC. SPDX-License-Identifier: Apache-2.0 -->
+<!--
+  Duck Lab XR move bar: the duck's mood line and its five moves with their
+  keys (controller buttons in a headset). Element ids are read by
+  src/run-panel.ts. Keep copy in plain ASCII.
+-->
+<style>
+  @font-face { font-family: bebas; src: url("../fonts/BebasNeue-Regular.ttf"); font-weight: 400; }
+
+  .card { flex-direction: column; width: 500px; padding-top: 10px; padding-bottom: 12px; padding-left: 14px; padding-right: 14px; gap: 8px; background-color: #0f1020; border-radius: 24px; border-width: 2px; border-color: rgba(255, 207, 63, 0.3); font-family: nunito; }
+  .mood-row { flex-direction: row; align-items: center; gap: 8px; padding-left: 4px; }
+  .dot { width: 8px; height: 8px; border-radius: 4px; background-color: #ffcf3f; }
+  .mood { font-size: 13px; font-weight: 700; color: rgba(255, 244, 220, 0.85); }
+  .moves { flex-direction: row; gap: 8px; }
+  .move { flex-direction: row; align-items: center; gap: 6px; width: 88px; padding-left: 6px; padding-right: 6px; padding-top: 6px; padding-bottom: 6px; border-radius: 14px; background-color: #ffcf3f; border-width: 2px; border-color: rgba(15, 16, 32, 0.25); }
+  .key { width: 26px; height: 26px; border-radius: 13px; background-color: #0f1020; align-items: center; justify-content: center; }
+  .key-text { font-family: bebas; font-size: 15px; color: #fff4dc; padding-top: 2px; }
+  .name { font-family: bebas; font-size: 16px; letter-spacing: 1px; color: #0f1020; padding-top: 2px; }
+</style>
+<div class="card">
+  <div class="mood-row">
+    <div class="dot"></div>
+    <div id="duck-mood" class="mood">Waking up the duck...</div>
+  </div>
+  <div class="moves">
+    <div id="move-kick" class="move"><div class="key"><div id="move-kick-key" class="key-text">A</div></div><div id="move-kick-name" class="name">KICK</div></div>
+    <div id="move-roll" class="move"><div class="key"><div id="move-roll-key" class="key-text">B</div></div><div id="move-roll-name" class="name">ROLL</div></div>
+    <div id="move-sit" class="move"><div class="key"><div id="move-sit-key" class="key-text">X</div></div><div id="move-sit-name" class="name">SIT</div></div>
+    <div id="move-peck" class="move"><div class="key"><div id="move-peck-key" class="key-text">Y</div></div><div id="move-peck-name" class="name">PECK</div></div>
+    <div id="move-bow" class="move"><div class="key"><div id="move-bow-key" class="key-text">N</div></div><div id="move-bow-name" class="name">BOW</div></div>
+  </div>
+</div>

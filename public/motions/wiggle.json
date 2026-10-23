@@ -1,0 +1,14 @@
+{
+  "version": "duckdash.motion.v1",
+  "name": "wiggle",
+  "title": "Wiggle",
+  "success": "upright-at-end",
+  "keyframes": [
+    { "t": 0.0, "pose": {} },
+    { "t": 0.3, "pose": { "head_yaw": 0.6, "head_roll": 0.25 } },
+    { "t": 0.9, "pose": { "head_yaw": -0.6, "head_roll": -0.25 } },
+    { "t": 1.5, "pose": { "head_yaw": 0.6, "head_roll": 0.25 } },
+    { "t": 2.1, "pose": { "head_yaw": -0.6, "head_roll": -0.25 } },
+    { "t": 2.5, "pose": {} }
+  ]
+}

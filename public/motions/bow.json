@@ -1,0 +1,12 @@
+{
+  "version": "duckdash.motion.v1",
+  "name": "bow",
+  "title": "Bow",
+  "success": "upright-at-end",
+  "keyframes": [
+    { "t": 0.0, "pose": {} },
+    { "t": 0.7, "pose": { "neck_pitch": -0.55, "head_pitch": 0.45, "left_hip_pitch": 0.25, "right_hip_pitch": 0.25, "left_ankle": -0.1, "right_ankle": -0.1 } },
+    { "t": 1.5, "pose": { "neck_pitch": -0.55, "head_pitch": 0.45, "left_hip_pitch": 0.25, "right_hip_pitch": 0.25, "left_ankle": -0.1, "right_ankle": -0.1 } },
+    { "t": 2.3, "pose": {} }
+  ]
+}

@@ -1,0 +1,60 @@
+<!-- Copyright 2026 BRUNA GOODS LLC. SPDX-License-Identifier: Apache-2.0 -->
+<!--
+  Microduck Lab panel: the developer readout (?lab=1). Same ink card and
+  type as the game panels; element ids are read by src/panel.ts. Keep copy
+  in plain ASCII.
+-->
+<style>
+  @font-face { font-family: bebas; src: url("../fonts/BebasNeue-Regular.ttf"); font-weight: 400; }
+
+  .card { flex-direction: column; width: 400px; padding-top: 14px; padding-bottom: 14px; padding-left: 16px; padding-right: 16px; gap: 6px; background-color: #0f1020; border-radius: 24px; border-width: 2px; border-color: rgba(111, 183, 255, 0.45); font-family: nunito; }
+  .head { flex-direction: row; align-items: center; gap: 8px; }
+  .title { font-family: bebas; font-size: 26px; letter-spacing: 2px; color: #6fb7ff; padding-top: 2px; }
+  .tag { font-family: bebas; font-size: 13px; letter-spacing: 1px; color: #0f1020; background-color: #6fb7ff; border-radius: 999px; padding-left: 9px; padding-right: 9px; padding-top: 3px; padding-bottom: 1px; }
+  .status { font-size: 14px; font-weight: 800; color: #fff4dc; padding-top: 4px; padding-bottom: 2px; }
+  .stat { font-size: 12px; font-weight: 600; color: rgba(255, 244, 220, 0.78); }
+  .section { font-family: bebas; font-size: 12px; letter-spacing: 2px; color: rgba(255, 244, 220, 0.45); padding-top: 6px; }
+  .row { flex-direction: row; gap: 6px; flex-wrap: wrap; }
+  .btn { font-family: bebas; font-size: 15px; letter-spacing: 1px; color: #fff4dc; background-color: rgba(255, 244, 220, 0.08); border-width: 2px; border-color: rgba(255, 244, 220, 0.25); border-radius: 999px; padding-left: 12px; padding-right: 12px; padding-top: 6px; padding-bottom: 4px; cursor: pointer; flex-shrink: 0; }
+  .btn:hover { background-color: rgba(255, 244, 220, 0.18); }
+  .btn-go { background-color: #3de0b8; border-color: #3de0b8; color: #0f1020; }
+  .btn-vr { background-color: #6fb7ff; border-color: #6fb7ff; color: #0f1020; }
+  .hint { font-size: 11px; font-weight: 600; color: rgba(255, 244, 220, 0.55); padding-top: 4px; }
+  .credit { font-size: 10px; font-weight: 600; color: rgba(255, 244, 220, 0.45); }
+</style>
+<div class="card">
+  <div class="head">
+    <div class="title">MICRODUCK LAB XR</div>
+    <div class="tag">DEV</div>
+  </div>
+  <div id="status-text" class="status">Loading the duck...</div>
+  <div id="display-text" class="stat">Display: measuring...</div>
+  <div id="sim-text" class="stat">Duck AI: starting...</div>
+  <div id="speed-text" class="stat">Speed test: not run yet</div>
+  <div id="camera-text" class="stat">Camera: off</div>
+  <div id="room-text" class="stat">Room: not in mixed reality</div>
+  <div id="scan-text" class="stat">Scan: none</div>
+  <div id="terrain-text" class="stat">Terrain: off</div>
+  <div id="scenario-text" class="stat">Scenario: none packed yet</div>
+  <div id="motion-text" class="stat">Motions: loading...</div>
+  <div id="profile-text" class="stat">Profile: off</div>
+  <div id="errors-text" class="stat">Errors: none</div>
+  <div class="section">SESSION</div>
+  <div class="row">
+    <div id="xr-button" class="btn btn-go">ENTER MR</div>
+    <div id="vr-button" class="btn btn-vr">ENTER VR</div>
+    <div id="exit-button" class="btn" style="display: none">EXIT</div>
+    <div id="reset-button" class="btn">RESET DUCK</div>
+    <div id="speed-button" class="btn">SPEED TEST</div>
+  </div>
+  <div class="section">TOOLS</div>
+  <div class="row">
+    <div id="camera-button" class="btn"><div id="camera-label">CAMERA TEST</div></div>
+    <div id="selftest-button" class="btn">DETECTOR SELF-TEST</div>
+    <div id="terrain-button" class="btn"><div id="terrain-label">SHOW TERRAIN</div></div>
+    <div id="scenario-button" class="btn">PACK SCENARIO</div>
+    <div id="export-button" class="btn">EXPORT BOW SET</div>
+  </div>
+  <div class="hint">Left stick: walk, click for the menu | A kick | B roll | X sit | Y peck | right stick click: bow | Trigger: quack | Right grip: place course | Left grip: restart</div>
+  <div class="credit">Microduck model and walking AI (c) Pollen Robotics. Meshes CC BY-NC-SA 4.0.</div>
+</div>

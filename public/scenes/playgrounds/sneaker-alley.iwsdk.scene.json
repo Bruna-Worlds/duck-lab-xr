@@ -1,0 +1,792 @@
+{
+  "version": "iwsdk.scene.v1",
+  "units": "meters",
+  "environment": {
+    "toneMapping": "aces",
+    "exposure": 1,
+    "shadows": true,
+    "shadowMapType": "pcf"
+  },
+  "components": {
+    "com.iwsdk.components.DomeGradient": {
+      "sky": [
+        0.56,
+        0.68,
+        0.8,
+        1
+      ],
+      "equator": [
+        0.82,
+        0.83,
+        0.8,
+        1
+      ],
+      "ground": [
+        0.42,
+        0.4,
+        0.37,
+        1
+      ],
+      "intensity": 1
+    },
+    "com.iwsdk.components.IBLGradient": {
+      "sky": [
+        0.6902,
+        0.749,
+        0.7843,
+        1
+      ],
+      "equator": [
+        0.6584,
+        0.7084,
+        0.7913,
+        1
+      ],
+      "ground": [
+        0.807,
+        0.7758,
+        0.7454,
+        1
+      ],
+      "intensity": 0.75
+    },
+    "Playground": {
+      "id": "sneaker-alley",
+      "title": "Sneaker Alley",
+      "mode": "both",
+      "par": 55,
+      "author": "Duck Lab XR"
+    }
+  },
+  "resources": {},
+  "authoring": {
+    "views": [
+      {
+        "id": "hero",
+        "role": "hero",
+        "projection": "perspective",
+        "position": [
+          -0.19999999999999996,
+          1.25,
+          0.5999999999999999
+        ],
+        "target": [
+          0,
+          0.05,
+          -1.3
+        ],
+        "fov": 55
+      }
+    ]
+  },
+  "nodes": [
+    {
+      "id": "toy-room",
+      "name": "toy-room",
+      "content": {
+        "type": "asset",
+        "asset": "toy-room",
+        "castShadow": false,
+        "receiveShadow": true
+      },
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ]
+      },
+      "components": {
+        "VrOnly": {}
+      }
+    },
+    {
+      "id": "duck-stage",
+      "name": "Duck Stage",
+      "transform": {
+        "position": [
+          -1.5,
+          0,
+          -1.3
+        ]
+      },
+      "components": {
+        "DuckStage": {}
+      },
+      "children": [
+        {
+          "id": "start-pad-1",
+          "name": "start-pad-1",
+          "content": {
+            "type": "asset",
+            "asset": "course-start-pad",
+            "castShadow": false,
+            "receiveShadow": true
+          },
+          "transform": {
+            "position": [
+              0,
+              0,
+              0
+            ]
+          },
+          "components": {
+            "CoursePiece": {},
+            "RayInteractable": {}
+          }
+        },
+        {
+          "id": "crumb-2",
+          "name": "crumb-2",
+          "content": {
+            "type": "asset",
+            "asset": "course-crumb",
+            "castShadow": false,
+            "receiveShadow": true
+          },
+          "transform": {
+            "position": [
+              0.25,
+              0,
+              0.05
+            ]
+          },
+          "components": {
+            "CourseCrumb": {
+              "points": 100
+            },
+            "CoursePiece": {},
+            "RayInteractable": {}
+          }
+        },
+        {
+          "id": "boat-shoe-tan-3",
+          "name": "boat-shoe-tan-3",
+          "content": {
+            "type": "asset",
+            "asset": "scan-boat-shoe-tan",
+            "castShadow": true,
+            "receiveShadow": true
+          },
+          "transform": {
+            "position": [
+              0.45,
+              0,
+              -0.16
+            ],
+            "rotationDeg": [
+              0,
+              70,
+              0
+            ]
+          },
+          "components": {
+            "CoursePiece": {},
+            "RayInteractable": {}
+          }
+        },
+        {
+          "id": "timberland-shoe-4",
+          "name": "timberland-shoe-4",
+          "content": {
+            "type": "asset",
+            "asset": "scan-timberland-shoe",
+            "castShadow": true,
+            "receiveShadow": true
+          },
+          "transform": {
+            "position": [
+              0.74,
+              0,
+              0.17
+            ],
+            "rotationDeg": [
+              0,
+              -60,
+              0
+            ]
+          },
+          "components": {
+            "CoursePiece": {},
+            "RayInteractable": {}
+          }
+        },
+        {
+          "id": "crumb-5",
+          "name": "crumb-5",
+          "content": {
+            "type": "asset",
+            "asset": "course-crumb",
+            "castShadow": false,
+            "receiveShadow": true
+          },
+          "transform": {
+            "position": [
+              0.6,
+              0,
+              -0.1
+            ]
+          },
+          "components": {
+            "CourseCrumb": {
+              "points": 100
+            },
+            "CoursePiece": {},
+            "RayInteractable": {}
+          }
+        },
+        {
+          "id": "ugg-boot-6",
+          "name": "ugg-boot-6",
+          "content": {
+            "type": "asset",
+            "asset": "scan-ugg-boot",
+            "castShadow": true,
+            "receiveShadow": true
+          },
+          "transform": {
+            "position": [
+              1.02,
+              0,
+              -0.24
+            ],
+            "rotationDeg": [
+              0,
+              20,
+              0
+            ]
+          },
+          "components": {
+            "CoursePiece": {},
+            "RayInteractable": {}
+          }
+        },
+        {
+          "id": "crumb-7",
+          "name": "crumb-7",
+          "content": {
+            "type": "asset",
+            "asset": "course-crumb",
+            "castShadow": false,
+            "receiveShadow": true
+          },
+          "transform": {
+            "position": [
+              0.96,
+              0,
+              0.14
+            ]
+          },
+          "components": {
+            "CourseCrumb": {
+              "points": 100
+            },
+            "CoursePiece": {},
+            "RayInteractable": {}
+          }
+        },
+        {
+          "id": "gate-8",
+          "name": "gate-8",
+          "content": {
+            "type": "asset",
+            "asset": "course-gate",
+            "castShadow": true,
+            "receiveShadow": true
+          },
+          "transform": {
+            "position": [
+              1.3,
+              0,
+              0.02
+            ]
+          },
+          "components": {
+            "CourseGate": {
+              "halfWidth": 0.14,
+              "points": 200
+            },
+            "CoursePiece": {},
+            "RayInteractable": {}
+          }
+        },
+        {
+          "id": "triceratops-9",
+          "name": "triceratops-9",
+          "content": {
+            "type": "asset",
+            "asset": "scan-triceratops",
+            "castShadow": true,
+            "receiveShadow": true
+          },
+          "transform": {
+            "position": [
+              1.55,
+              0,
+              -0.2
+            ],
+            "rotationDeg": [
+              0,
+              -30,
+              0
+            ]
+          },
+          "components": {
+            "CoursePiece": {},
+            "RayInteractable": {}
+          }
+        },
+        {
+          "id": "crumb-10",
+          "name": "crumb-10",
+          "content": {
+            "type": "asset",
+            "asset": "course-crumb",
+            "castShadow": false,
+            "receiveShadow": true
+          },
+          "transform": {
+            "position": [
+              1.5,
+              0,
+              0.1
+            ]
+          },
+          "components": {
+            "CourseCrumb": {
+              "points": 100
+            },
+            "CoursePiece": {},
+            "RayInteractable": {}
+          }
+        },
+        {
+          "id": "ball-11",
+          "name": "ball-11",
+          "content": {
+            "type": "asset",
+            "asset": "course-ball",
+            "castShadow": true,
+            "receiveShadow": true
+          },
+          "transform": {
+            "position": [
+              1.78,
+              0.05,
+              0
+            ]
+          },
+          "components": {
+            "CourseBall": {},
+            "CoursePiece": {},
+            "RayInteractable": {}
+          }
+        },
+        {
+          "id": "goal-12",
+          "name": "goal-12",
+          "content": {
+            "type": "asset",
+            "asset": "course-goal",
+            "castShadow": true,
+            "receiveShadow": true
+          },
+          "transform": {
+            "position": [
+              2.18,
+              0,
+              -0.05
+            ]
+          },
+          "components": {
+            "CourseGoal": {
+              "halfDepth": 0.06,
+              "halfWidth": 0.14,
+              "height": 0.15,
+              "points": 500
+            },
+            "CoursePiece": {},
+            "RayInteractable": {}
+          }
+        },
+        {
+          "id": "cereal-box-13",
+          "name": "cereal-box-13",
+          "content": {
+            "type": "asset",
+            "asset": "scan-cereal-box",
+            "castShadow": true,
+            "receiveShadow": true
+          },
+          "transform": {
+            "position": [
+              2.05,
+              0,
+              0.3
+            ],
+            "rotationDeg": [
+              0,
+              15,
+              0
+            ]
+          },
+          "components": {
+            "CoursePiece": {},
+            "RayInteractable": {}
+          }
+        },
+        {
+          "id": "mug-blue-14",
+          "name": "mug-blue-14",
+          "content": {
+            "type": "asset",
+            "asset": "scan-mug-blue",
+            "castShadow": true,
+            "receiveShadow": true
+          },
+          "transform": {
+            "position": [
+              2.36,
+              0,
+              0.26
+            ]
+          },
+          "components": {
+            "CoursePiece": {},
+            "RayInteractable": {}
+          }
+        },
+        {
+          "id": "spinosaurus-15",
+          "name": "spinosaurus-15",
+          "content": {
+            "type": "asset",
+            "asset": "scan-spinosaurus",
+            "castShadow": true,
+            "receiveShadow": true
+          },
+          "transform": {
+            "position": [
+              2.5,
+              0,
+              -0.24
+            ],
+            "rotationDeg": [
+              0,
+              160,
+              0
+            ]
+          },
+          "components": {
+            "CoursePiece": {},
+            "RayInteractable": {}
+          }
+        },
+        {
+          "id": "crumb-16",
+          "name": "crumb-16",
+          "content": {
+            "type": "asset",
+            "asset": "course-crumb",
+            "castShadow": false,
+            "receiveShadow": true
+          },
+          "transform": {
+            "position": [
+              2.45,
+              0,
+              0.02
+            ]
+          },
+          "components": {
+            "CourseCrumb": {
+              "points": 100
+            },
+            "CoursePiece": {},
+            "RayInteractable": {}
+          }
+        },
+        {
+          "id": "blocks-wagon-17",
+          "name": "blocks-wagon-17",
+          "content": {
+            "type": "asset",
+            "asset": "scan-blocks-wagon",
+            "castShadow": true,
+            "receiveShadow": true
+          },
+          "transform": {
+            "position": [
+              2.72,
+              0,
+              0.2
+            ],
+            "rotationDeg": [
+              0,
+              -20,
+              0
+            ]
+          },
+          "components": {
+            "CoursePiece": {},
+            "RayInteractable": {}
+          }
+        },
+        {
+          "id": "gate-18",
+          "name": "gate-18",
+          "content": {
+            "type": "asset",
+            "asset": "course-gate",
+            "castShadow": true,
+            "receiveShadow": true
+          },
+          "transform": {
+            "position": [
+              2.86,
+              0,
+              -0.02
+            ]
+          },
+          "components": {
+            "CourseGate": {
+              "halfWidth": 0.14,
+              "points": 200
+            },
+            "CoursePiece": {},
+            "RayInteractable": {}
+          }
+        },
+        {
+          "id": "crumb-19",
+          "name": "crumb-19",
+          "content": {
+            "type": "asset",
+            "asset": "course-crumb",
+            "castShadow": false,
+            "receiveShadow": true
+          },
+          "transform": {
+            "position": [
+              3.02,
+              0,
+              0.1
+            ]
+          },
+          "components": {
+            "CourseCrumb": {
+              "points": 100
+            },
+            "CoursePiece": {},
+            "RayInteractable": {}
+          }
+        },
+        {
+          "id": "finish-pad-20",
+          "name": "finish-pad-20",
+          "content": {
+            "type": "asset",
+            "asset": "course-finish-pad",
+            "castShadow": false,
+            "receiveShadow": true
+          },
+          "transform": {
+            "position": [
+              3.2,
+              0,
+              0.03
+            ]
+          },
+          "components": {
+            "CourseFinish": {
+              "radius": 0.14,
+              "par": 55
+            },
+            "CoursePiece": {},
+            "RayInteractable": {}
+          }
+        },
+        {
+          "id": "key-light",
+          "name": "Key Light",
+          "transform": {
+            "position": [
+              -0.15,
+              3.1,
+              1.35
+            ],
+            "rotationDeg": [
+              -66.47,
+              -22.49,
+              -41.3
+            ]
+          },
+          "components": {
+            "com.iwsdk.components.DirectionalLight": {
+              "color": [
+                1,
+                0.95,
+                0.88,
+                1
+              ],
+              "intensity": 2.2,
+              "castShadow": true,
+              "shadowMapSize": "1024",
+              "shadowBias": -0.0004,
+              "shadowNormalBias": 0.01,
+              "shadowRadius": 3,
+              "shadowCameraNear": 0.5,
+              "shadowCameraFar": 8,
+              "shadowCameraSize": 3.6
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "run-panel",
+      "name": "Scoreboard",
+      "content": {
+        "type": "asset",
+        "asset": "run-panel"
+      },
+      "transform": {
+        "position": [
+          0,
+          1,
+          -2.1
+        ],
+        "rotationDeg": [
+          -15,
+          0,
+          0
+        ],
+        "scale": 0.2
+      },
+      "components": {
+        "RayInteractable": {},
+        "ScreenSpace": {
+          "top": "20px",
+          "right": "20px",
+          "width": "27vw",
+          "height": "32%"
+        }
+      }
+    },
+    {
+      "id": "menu-panel",
+      "name": "Menu Panel",
+      "content": {
+        "type": "asset",
+        "asset": "menu-panel"
+      },
+      "transform": {
+        "position": [
+          0,
+          1.25,
+          -0.75
+        ],
+        "rotationDeg": [
+          -10,
+          0,
+          0
+        ],
+        "scale": 0.12
+      },
+      "components": {
+        "RayInteractable": {},
+        "ScreenSpace": {
+          "top": "20px",
+          "left": "20px",
+          "width": "22vw",
+          "height": "40%"
+        }
+      }
+    },
+    {
+      "id": "moves-panel",
+      "name": "Moves Panel",
+      "content": {
+        "type": "asset",
+        "asset": "moves-panel"
+      },
+      "transform": {
+        "position": [
+          0,
+          0.614,
+          -1.996
+        ],
+        "rotationDeg": [
+          -15,
+          0,
+          0
+        ],
+        "scale": 0.2
+      },
+      "components": {
+        "RayInteractable": {},
+        "ScreenSpace": {
+          "bottom": "20px",
+          "left": "calc(50vw - 16vw)",
+          "width": "32vw",
+          "height": "14%"
+        }
+      }
+    },
+    {
+      "id": "robot-panel",
+      "name": "Robot Panel",
+      "content": {
+        "type": "asset",
+        "asset": "robot-panel"
+      },
+      "transform": {
+        "position": [
+          0,
+          0.65,
+          -1
+        ],
+        "scale": 0.1
+      },
+      "components": {
+        "RayInteractable": {},
+        "ScreenSpace": {
+          "bottom": "20px",
+          "right": "20px",
+          "width": "19vw",
+          "height": "44%"
+        }
+      }
+    },
+    {
+      "id": "lab-panel",
+      "name": "Lab Panel",
+      "content": {
+        "type": "asset",
+        "asset": "lab-panel"
+      },
+      "transform": {
+        "position": [
+          -1.75,
+          1.3,
+          -0.7
+        ],
+        "rotationDeg": [
+          0,
+          68,
+          0
+        ],
+        "scale": 0.18
+      },
+      "components": {
+        "RayInteractable": {},
+        "ScreenSpace": {
+          "bottom": "20px",
+          "left": "20px",
+          "width": "24vw",
+          "height": "56%"
+        }
+      }
+    }
+  ]
+}

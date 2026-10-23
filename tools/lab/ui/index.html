@@ -1,0 +1,137 @@
+<!doctype html>
+<!-- Copyright 2026 BRUNA GOODS LLC. SPDX-License-Identifier: Apache-2.0 -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Duck Lab XR Trainer</title>
+    <link rel="stylesheet" href="style.css" />
+    <script type="importmap">
+      { "imports": { "three": "/vendor/three/build/three.module.js", "three/addons/": "/vendor/three/examples/jsm/" } }
+    </script>
+  </head>
+  <body>
+    <header class="top">
+      <div class="brand">
+        <div class="sticker-shadow"><div class="sticker">DUCK LAB XR</div></div>
+        <nav id="views" class="views" hidden><a id="view-play" class="view" href="../" title="Play with Pip">PLAY</a><span class="view on">TRAINER</span></nav>
+        <div class="tagline">The trainer on your computer: your room's hard moments become training scenes for Pip</div>
+      </div>
+      <div class="chips">
+        <span class="chip" id="chip-headset">Headset: not paired</span>
+        <span class="chip" id="chip-inbox">Inbox: watching</span>
+        <span class="chip" id="chip-brain">Headset brain: shipped</span>
+        <span class="chip" id="chip-trainer">Trainer: idle</span>
+      </div>
+    </header>
+
+    <div id="engine-missing" class="banner" hidden>
+      <button id="engine-start" class="btn btn-go" type="button" hidden>Start the trainer</button>
+      <span id="engine-text"><b>The trainer is not running on this computer.</b> Start it in the project folder with
+      <code>npm run lab</code>; this page connects by itself.</span> Pairing with your headset works meanwhile, and packs it sends wait here.
+    </div>
+
+    <main class="grid">
+      <section class="col">
+        <div class="card pair-card">
+          <div class="card-head"><h2>Headset</h2><div id="pair-code" class="pair-code" title="Pairing code"></div></div>
+          <p id="pair-hint" class="hint">On the headset, open this website, then menu, TRAINER ON YOUR COMPUTER, and pick this code.</p>
+          <div id="pair-list" class="list small"></div>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <h2>Inbox</h2>
+            <label class="drop" title="Import a .scenario.json file">
+              Import<input id="import" type="file" accept=".json" hidden />
+            </label>
+          </div>
+          <p class="hint">Scenario packs from the headset: falls and stuck moments, captured with the room, terrain and the commands that led there. Tick the ones to train on.</p>
+          <div id="packs" class="list"></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h2>Motion sets</h2></div>
+          <div id="datasets" class="list small"></div>
+        </div>
+      </section>
+
+      <section class="col wide">
+        <div class="card">
+          <div class="card-head">
+            <h2>Scene</h2>
+            <div class="tabs"><button id="tab-map" class="tab on">Map</button><button id="tab-3d" class="tab">3D replay</button></div>
+          </div>
+          <div id="scene-title" class="meta">Pick a pack</div>
+          <canvas id="map" width="1200" height="900"></canvas>
+          <canvas id="view3d" hidden></canvas>
+          <div id="timeline" class="timeline" hidden>
+            <button id="play" class="btn">Pause</button>
+            <input id="scrub" type="range" min="0" max="1000" value="0" />
+            <span id="clock" class="meta">0.0 s</span>
+          </div>
+          <div class="legend">
+            <span><i class="sw sw-terrain"></i>sensed terrain</span>
+            <span><i class="sw sw-piece"></i>course piece</span>
+            <span><i class="sw sw-ship"></i>shipped brain</span>
+            <span><i class="sw sw-rel"></i>trained brain</span>
+            <span><i class="sw sw-fall"></i>fall</span>
+          </div>
+          <div class="row">
+            <button id="replay-ship" class="btn" disabled>Replay: shipped</button>
+            <select id="replay-release" class="select" disabled></select>
+            <button id="replay-rel" class="btn btn-mint" disabled>Replay: trained</button>
+          </div>
+          <div id="replay-result" class="result"></div>
+        </div>
+      </section>
+
+      <section class="col">
+        <div class="card">
+          <div class="card-head"><h2>Train</h2><div id="train-count" class="meta">0 packs</div></div>
+          <p class="hint">Local fine-tune: evolution strategies on the walking policy's last layer, in MuJoCo on this PC, with shoves and noise. Checked on held-out seeds and on plain floor before it is released.</p>
+          <div class="form">
+            <label>Name<input id="t-name" value="room-tuned" maxlength="40" /></label>
+            <label>Iterations<input id="t-iterations" type="number" min="1" max="200" value="30" /></label>
+            <label>Pairs<input id="t-pairs" type="number" min="4" max="64" value="24" /></label>
+            <label>Steps<input id="t-steps" type="number" min="100" max="1500" value="900" /></label>
+          </div>
+          <label class="check"><input id="t-publish" type="checkbox" checked /> Offer it to the headset when it is better</label>
+          <div class="row">
+            <button id="train" class="btn btn-go" disabled>Train on selected</button>
+            <button id="stop" class="btn" disabled>Stop</button>
+          </div>
+          <canvas id="chart" width="760" height="300"></canvas>
+          <div id="train-log" class="log"></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h2>Releases</h2></div>
+          <div id="releases" class="list"></div>
+          <form id="publish-form" class="publish" hidden>
+            <div class="publish-title">Publish <span id="publish-name"></span> to Hugging Face</div>
+            <div class="form">
+              <label>Access token (write)<input id="publish-token" type="password" placeholder="hf_..." autocomplete="off" spellcheck="false" required /></label>
+              <label>Model repo<input id="publish-repo" spellcheck="false" autocomplete="off" /></label>
+            </div>
+            <p class="hint">Creates a public model repo with <code>policy.onnx</code>, the duck's <code>manifest.json</code> and a README that credits Pollen Robotics. The token goes to Hugging Face for this upload only and is not saved (make one at huggingface.co/settings/tokens).</p>
+            <div class="row">
+              <button id="publish-go" class="btn btn-yellow" type="submit">Publish</button>
+              <button id="publish-cancel" class="btn" type="button">Close</button>
+              <span id="publish-out" class="publish-out"></span>
+            </div>
+          </form>
+        </div>
+        <div class="card">
+          <div class="card-head"><h2>Export</h2></div>
+          <p class="hint">Take the ticked test cases (and your motion sets) to any simulator or trainer: MuJoCo scenes of your room, meshes for other engines, the recorded run as a dataset, the policies and a Python environment, in one .zip. Brains trained elsewhere come back as a release folder.</p>
+          <div class="form">
+            <label>For<select id="export-target" class="select"></select></label>
+          </div>
+          <label class="check"><input id="export-motions" type="checkbox" /> Include the motion sets (behaviour-cloning data, .npz)</label>
+          <div class="row"><button id="export" class="btn" disabled>Export and download</button></div>
+          <div id="export-result" class="result"></div>
+        </div>
+      </section>
+    </main>
+    <footer class="rights">Duck Lab XR, developed by Bruna Worlds. &copy; 2026 BRUNA GOODS LLC. All rights reserved.</footer>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

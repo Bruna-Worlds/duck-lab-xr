@@ -1,0 +1,99 @@
+// Copyright 2026 BRUNA GOODS LLC
+// SPDX-License-Identifier: Apache-2.0
+
+/**
+ * What the headset and Duck Lab XR's trainer page say to each other over their
+ * WebRTC data channel, and what they post to the pairing rendezvous to set
+ * that channel up (tools/link/rendezvous-server.mjs).
+ *
+ * Text frames are JSON messages. A file (a scenario pack, one policy of a
+ * trained brain) is a 'file' message followed by exactly `size` bytes in
+ * binary frames, with nothing else in between: the channel is ordered and
+ * reliable, so the receiver just counts.
+ *
+ * Kept free of IWSDK and DOM-only imports: the trainer page loads it too.
+ */
+import { POLICY_FILES } from '../duck/duck-constants.js';
+
+export const LINK_APP = 'duck-lab';
+export const LINK_VERSION = 1;
+/** Binary frame size (Chromium takes up to 256 KB; smaller frames keep acks flowing). */
+export const CHUNK_BYTES = 64 * 1024;
+/** Largest file either side accepts. */
+export const MAX_FILE_BYTES = 64 * 1024 * 1024;
+/** The files of a trained brain, in the order they are sent. */
+export const BRAIN_FILES: string[] = Object.values(POLICY_FILES);
+
+export type LinkRole = 'headset' | 'trainer';
+
+/** A trained brain as the trainer lists it (the duckdash.policies.v1 release shape). */
+export interface BrainRelease {
+  id: string;
+  name: string;
+  createdAt: string;
+  trainer: string;
+  baseHash: string;
+  walkHash: string;
+  packs: number;
+  fallRate: number | null;
+  baselineFallRate: number | null;
+  note?: string;
+  /** The public Hub repo it was published to (what a real duck downloads), if any. */
+  hubRepo?: string | null;
+}
+
+export interface BrainIndex {
+  active: string | null;
+  releases: BrainRelease[];
+}
+
+export interface FileHeader {
+  kind: 'pack' | 'brain';
+  name: string;
+  /** For brain files: the release they belong to. */
+  release?: string;
+}
+
+export type LinkMessage =
+  | { t: 'hello'; app: string; v: number; role: LinkRole; id: string; name: string }
+  | ({ t: 'file'; size: number } & FileHeader)
+  /** Headset: which brain it runs now (null: the shipped one). */
+  | { t: 'status'; brain: string | null; playground?: string }
+  /** Trainer: a pack arrived and was saved (or could not be). */
+  | { t: 'pack-saved'; name: string; file: string }
+  | { t: 'pack-failed'; name: string; error: string }
+  /** Trainer: its brains and which one it offers the headset. */
+  | ({ t: 'brains' } & BrainIndex)
+  /** Headset: send me this brain's files. */
+  | { t: 'want-brain'; id: string }
+  | { t: 'brain-start'; release: BrainRelease; files: string[] }
+  | { t: 'brain-end'; id: string }
+  | { t: 'brain-failed'; id: string; error: string }
+  /** Trainer: what it is doing, one line ("Training room-tuned: iteration 4 of 30"). */
+  | { t: 'trainer'; line: string };
+
+/** Rendezvous messages (the WebRTC offer and answer, all ICE candidates included). */
+export type SignalData =
+  | { type: 'offer'; sdp: string; name: string; role: LinkRole; nonce: string }
+  | { type: 'answer'; sdp: string; name: string; nonce: string };
+
+/** A random id for this device or page, kept in local storage. */
+export function persistentId(key: string): string {
+  try {
+    const known = localStorage.getItem(key);
+    if (known && /^[A-Za-z0-9_-]{8,64}$/.test(known)) return known;
+  } catch {
+    // storage blocked: a fresh id per load
+  }
+  const bytes = crypto.getRandomValues(new Uint8Array(12));
+  const id = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  try {
+    localStorage.setItem(key, id);
+  } catch {
+    // storage blocked
+  }
+  return id;
+}
+
+/** "482 913": a pairing code as people read it. */
+export const spacedCode = (code: string): string => (code.length === 6 ? `${code.slice(0, 3)} ${code.slice(3)}` : code);

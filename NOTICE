@@ -1,0 +1,26 @@
+Duck Lab XR
+Copyright 2026 BRUNA GOODS LLC
+
+Developed by Bruna Worlds (BRUNA GOODS LLC). Licensed under the Apache License,
+Version 2.0 (see LICENSE).
+
+This project includes code from IWSDK, the Immersive Web SDK
+(https://github.com/facebook/immersive-web-sdk),
+Copyright (c) Meta Platforms, Inc. and affiliates, licensed under the MIT
+License (see LICENSES/MIT-IWSDK.txt):
+  - the IWSDK starter template the project began from (the original parts of
+    src/index.ts, src/assets.ts, src/components.ts and vite.config.ts);
+  - src/scene-assets/lib/hardsurface.ts;
+  - the coding-agent guidance installed by the IWSDK CLI: AGENTS.md,
+    CLAUDE.md, src/AGENTS.md, public/scenes/AGENTS.md, public/ui/AGENTS.md,
+    .agents/, .claude/, .cursor/ and .github/instructions/.
+
+The robot model, the walking policies and the other assets under public/
+are third-party works under their own licences, listed in CREDITS.md. In
+particular, the Microduck meshes by Pollen Robotics are licensed under
+CC BY-NC-SA 4.0: they may not be used commercially, and adaptations must be
+shared under the same licence. The Microduck policies and MuJoCo model are
+Apache-2.0, (c) Pollen Robotics.
+
+"Microduck" and "Pollen Robotics" are names of Pollen Robotics. Duck Lab XR
+is an independent fan project, not made or endorsed by Pollen Robotics.

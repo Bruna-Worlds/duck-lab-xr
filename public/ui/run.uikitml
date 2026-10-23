@@ -1,0 +1,65 @@
+<!-- Copyright 2026 BRUNA GOODS LLC. SPDX-License-Identifier: Apache-2.0 -->
+<!--
+  Duck Lab XR scoreboard: title, run state, time, score, pickups, the combo
+  line and the result line. The playground picker and the toggles live in
+  menu.uikitml, the move buttons in moves.uikitml and the duck's camera in
+  robot.uikitml. Ink card, cream text, candy accents; Bebas Neue (SIL OFL,
+  public/fonts/BebasNeue-OFL.txt) for the big words, Nunito for the rest.
+  Element ids are read by src/run-panel.ts. Keep copy in plain ASCII.
+-->
+<style>
+  @font-face { font-family: bebas; src: url("../fonts/BebasNeue-Regular.ttf"); font-weight: 400; }
+
+  .card { flex-direction: column; width: 470px; padding-top: 16px; padding-bottom: 14px; padding-left: 18px; padding-right: 18px; gap: 10px; background-color: #0f1020; border-radius: 28px; border-width: 2px; border-color: rgba(255, 207, 63, 0.4); font-family: nunito; }
+
+  .header { flex-direction: row; justify-content: space-between; align-items: flex-start; }
+  .brand { flex-direction: column; gap: 4px; }
+  .sticker-shadow { background-color: #ffcf3f; border-radius: 12px; padding-right: 5px; padding-bottom: 5px; }
+  .sticker { background-color: #1c1d36; border-radius: 12px; border-width: 2px; border-color: #ffcf3f; padding-left: 12px; padding-right: 12px; padding-top: 3px; padding-bottom: 1px; }
+  .title { font-family: bebas; font-size: 34px; color: #ffcf3f; letter-spacing: 1px; line-height: 1; }
+  .subtitle { font-size: 12px; font-weight: 700; color: rgba(255, 244, 220, 0.6); padding-left: 2px; }
+  .side { flex-direction: column; align-items: flex-end; gap: 6px; }
+  .pill { font-family: bebas; font-size: 17px; letter-spacing: 1px; color: #0f1020; background-color: #6fb7ff; border-radius: 999px; padding-left: 14px; padding-right: 14px; padding-top: 6px; padding-bottom: 4px; }
+  .menu { font-family: bebas; font-size: 14px; letter-spacing: 1px; color: #fff4dc; background-color: rgba(255, 244, 220, 0.08); border-width: 2px; border-color: rgba(255, 244, 220, 0.25); border-radius: 999px; padding-left: 12px; padding-right: 12px; padding-top: 5px; padding-bottom: 3px; cursor: pointer; }
+  .menu:hover { background-color: rgba(255, 244, 220, 0.18); }
+
+  .stats { flex-direction: row; gap: 10px; }
+  .tile { flex-direction: column; gap: 0px; background-color: #1c1d36; border-radius: 18px; border-width: 1px; border-color: rgba(255, 244, 220, 0.1); padding-left: 14px; padding-right: 14px; padding-top: 8px; padding-bottom: 8px; width: 128px; }
+  .tile-wide { width: 160px; justify-content: center; gap: 2px; }
+  .label { font-family: bebas; font-size: 12px; letter-spacing: 1px; color: rgba(255, 244, 220, 0.55); }
+  .value { font-family: bebas; font-size: 38px; color: #fff4dc; line-height: 1; }
+  .score { color: #ffcf3f; }
+  .item { font-size: 13px; font-weight: 700; color: #fff4dc; }
+
+  .combo { font-family: bebas; font-size: 20px; letter-spacing: 1px; color: #ff7a45; height: 22px; }
+  .hint { font-size: 13px; font-weight: 600; color: rgba(255, 244, 220, 0.75); }
+</style>
+<div class="card">
+  <div class="header">
+    <div class="brand">
+      <div class="sticker-shadow"><div class="sticker"><div class="title">DUCK LAB XR</div></div></div>
+      <div id="run-subtitle" class="subtitle">Living room course</div>
+    </div>
+    <div class="side">
+      <div id="run-state" class="pill">WALK TO START</div>
+      <div id="menu-button" class="menu" style="display: none">MENU</div>
+    </div>
+  </div>
+  <div class="stats">
+    <div class="tile">
+      <div class="label">TIME</div>
+      <div id="run-time" class="value">0:00.0</div>
+    </div>
+    <div class="tile">
+      <div class="label">SCORE</div>
+      <div id="run-score" class="value score">0</div>
+    </div>
+    <div class="tile tile-wide">
+      <div id="item-crumbs" class="item">Crumbs 0/0</div>
+      <div id="item-gates" class="item">Gates 0/0</div>
+      <div id="item-goal" class="item">Goal 0/0</div>
+    </div>
+  </div>
+  <div id="run-combo" class="combo"> </div>
+  <div id="run-result" class="hint">Weave the books, pass the gates, kick the ball in the goal, reach the flag.</div>
+</div>

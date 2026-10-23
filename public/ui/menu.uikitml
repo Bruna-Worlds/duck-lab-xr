@@ -1,0 +1,109 @@
+<!-- Copyright 2026 BRUNA GOODS LLC. SPDX-License-Identifier: Apache-2.0 -->
+<!--
+  Duck Lab XR menu: the playground picker, the course editor's palette, the
+  duck toggles (autopilot, camera panel, editor), Restart and, on the 2D
+  page, Enter MR / Enter VR (at the top), pairing with Duck Lab XR's trainer on
+  the player's computer (TRAINER ON YOUR COMPUTER: src/link/lab-link-system.ts)
+  and the link to a real Microduck (REAL DUCK: src/robot/real-duck-system.ts). In a headset it opens beside the player
+  with the left controller's menu button (or the scoreboard's Menu chip).
+  On a desktop the minimize button folds the menu to its title bar (the
+  chevron or the title unfolds it). Element ids are read by src/run-panel.ts. Keep copy in plain ASCII.
+-->
+<style>
+  @font-face { font-family: bebas; src: url("../fonts/BebasNeue-Regular.ttf"); font-weight: 400; }
+
+  .card { flex-direction: column; width: 450px; padding-top: 14px; padding-bottom: 16px; padding-left: 16px; padding-right: 16px; gap: 9px; background-color: #0f1020; border-radius: 26px; border-width: 2px; border-color: rgba(205, 180, 219, 0.45); font-family: nunito; }
+  .head { flex-direction: row; justify-content: space-between; align-items: center; }
+  .title { font-family: bebas; font-size: 24px; letter-spacing: 2px; color: #fff4dc; padding-top: 2px; }
+  .close { width: 30px; height: 30px; border-radius: 15px; align-items: center; justify-content: center; background-color: rgba(255, 244, 220, 0.08); border-width: 1px; border-color: rgba(255, 244, 220, 0.25); cursor: pointer; }
+  .close:hover { background-color: rgba(255, 244, 220, 0.2); }
+  .glyph { width: 16px; height: 16px; color: #fff4dc; }
+
+  .section { font-family: bebas; font-size: 14px; letter-spacing: 2px; color: rgba(255, 244, 220, 0.45); }
+  .chips { flex-direction: row; gap: 8px; flex-wrap: wrap; }
+  .chip { font-size: 16px; font-weight: 700; color: #fff4dc; background-color: rgba(255, 244, 220, 0.08); border-width: 1px; border-color: rgba(255, 244, 220, 0.18); border-radius: 999px; padding-left: 15px; padding-right: 15px; padding-top: 9px; padding-bottom: 9px; cursor: pointer; flex-shrink: 0; }
+  .chip:hover { background-color: rgba(255, 244, 220, 0.18); }
+  .status { font-size: 14px; font-weight: 600; color: rgba(255, 244, 220, 0.7); }
+
+  .buttons { flex-direction: row; gap: 8px; flex-wrap: wrap; }
+  .btn { font-family: bebas; font-size: 21px; letter-spacing: 1px; color: #fff4dc; background-color: rgba(255, 244, 220, 0.08); border-width: 2px; border-color: rgba(255, 244, 220, 0.25); border-radius: 999px; padding-left: 17px; padding-right: 17px; padding-top: 10px; padding-bottom: 8px; cursor: pointer; flex-shrink: 0; }
+  .btn:hover { background-color: rgba(255, 244, 220, 0.18); }
+  .btn-go { background-color: #3de0b8; border-color: #3de0b8; color: #0f1020; }
+  .btn-go:hover { background-color: #6cf0cc; }
+  .btn-vr { background-color: #6fb7ff; border-color: #6fb7ff; color: #0f1020; }
+  .btn-vr:hover { background-color: #9bd0ff; }
+  .byline { font-size: 13px; font-weight: 700; color: rgba(255, 244, 220, 0.75); }
+  .enter { flex-direction: row; gap: 10px; padding-bottom: 4px; }
+  .btn-big { font-size: 28px; letter-spacing: 2px; padding-left: 26px; padding-right: 26px; padding-top: 13px; padding-bottom: 10px; flex-grow: 1; text-align: center; }
+  .credit { font-size: 10px; font-weight: 600; color: rgba(255, 244, 220, 0.45); padding-top: 2px; }
+  .headbtns { flex-direction: row; gap: 8px; align-items: center; }
+  .body { flex-direction: column; gap: 9px; }
+</style>
+<div class="card">
+  <div class="head">
+    <div id="menu-title" class="title">MENU</div>
+    <div class="headbtns">
+      <div id="menu-min" class="close" style="display: none"><Minus class="glyph"></Minus></div>
+      <div id="menu-expand" class="close" style="display: none"><ChevronDown class="glyph"></ChevronDown></div>
+      <div id="menu-close" class="close" style="display: none"><X class="glyph"></X></div>
+    </div>
+  </div>
+  <div id="menu-body" class="body">
+  <div class="byline">Duck Lab XR, developed by Bruna Worlds</div>
+  <div id="xr-row" class="enter">
+    <div id="xr-button" class="btn btn-go btn-big">ENTER MR</div>
+    <div id="vr-button" class="btn btn-vr btn-big">ENTER VR</div>
+  </div>
+  <div class="section">PLAYGROUNDS</div>
+  <div class="chips">
+    <div id="pg-0" class="chip">...</div>
+    <div id="pg-1" class="chip">...</div>
+    <div id="pg-2" class="chip">...</div>
+    <div id="pg-3" class="chip">...</div>
+    <div id="pg-4" class="chip">...</div>
+    <div id="pg-5" class="chip">...</div>
+  </div>
+  <div id="editor-row" class="chips" style="display: none">
+    <div id="ed-crumb" class="chip">+Crumb</div>
+    <div id="ed-gate" class="chip">+Gate</div>
+    <div id="ed-books" class="chip">+Books</div>
+    <div id="ed-ball" class="chip">+Ball</div>
+    <div id="ed-goal" class="chip">+Goal</div>
+    <div id="ed-finish" class="chip">+Finish</div>
+    <div id="ed-shoe" class="chip">+Shoe</div>
+    <div id="ed-dino" class="chip">+Dino</div>
+    <div id="ed-save" class="chip">Save</div>
+    <div id="ed-share" class="chip">Share link</div>
+    <div id="ed-clear" class="chip">Clear</div>
+  </div>
+  <div id="ed-status" class="status" style="display: none">Editing</div>
+  <div class="section">DUCK</div>
+  <div class="buttons">
+    <div id="auto-button" class="btn">AUTO</div>
+    <div id="cam-button" class="btn">CAM</div>
+    <div id="edit-button" class="btn">EDIT</div>
+    <div id="restart-button" class="btn">RESTART</div>
+    <div id="controls-button" class="btn" style="display: none">CONTROLS</div>
+  </div>
+  <div class="section">TRAINER ON YOUR COMPUTER</div>
+  <div id="lab-status" class="status">On your computer, open this website and click TRAINER at the top.</div>
+  <div class="buttons">
+    <div id="lab-0" class="btn" style="display: none">PAIR</div>
+    <div id="lab-1" class="btn" style="display: none">PAIR</div>
+    <div id="lab-2" class="btn" style="display: none">PAIR</div>
+    <div id="lab-open" class="btn btn-go" style="display: none">OPEN TRAINER</div>
+    <div id="lab-forget" class="btn" style="display: none">FORGET</div>
+  </div>
+  <div class="section">REAL DUCK</div>
+  <div id="real-status" class="status">Not linked. Link with your Hugging Face account to drive your Microduck.</div>
+  <div class="buttons">
+    <div id="real-link" class="btn">LINK</div>
+    <div id="real-mirror" class="btn">MIRROR</div>
+    <div id="real-flash" class="btn">FLASH BRAIN</div>
+    <div id="real-stop" class="btn">STOP WALKING</div>
+  </div>
+  <div class="credit">Microduck model and walking AI (c) Pollen Robotics. Meshes CC BY-NC-SA 4.0.</div>
+  <div class="credit">Household objects: Google Scanned Objects (CC BY 4.0). Props, textures, sky: Poly Haven (CC0).</div>
+  <div class="credit">(c) 2026 BRUNA GOODS LLC. All rights reserved.</div>
+  </div>
+</div>

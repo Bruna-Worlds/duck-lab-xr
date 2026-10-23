@@ -1,0 +1,19 @@
+# Line endings are normalised to LF in the repository; shell scripts stay LF
+# in every checkout so they run on Linux and macOS too.
+* text=auto
+*.sh text eol=lf
+
+# Assets: stored byte for byte, never diffed or converted
+*.glb binary
+*.bin binary
+*.onnx binary
+*.stl binary
+*.hdr binary
+*.jpg binary
+*.jpeg binary
+*.png binary
+*.ttf binary
+*.mp3 binary
+*.mp4 binary
+*.zip binary
+*.npz binary
