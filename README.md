@@ -240,6 +240,8 @@ any build, `?duck=lite` loads a lighter duck mesh.
 bash tools/test/demo-e2e.sh                  # the real -> sim -> real film -> artifacts/video/e2e.mp4
 bash tools/film/stack/stack.sh               # headset on top, trainer page below, in sync -> artifacts/video/stack.mp4
 node tools/film/trailer/compose-trailer.mjs  # the 1080x1920 trailer -> artifacts/video/trailer.mp4
+node tools/film/social/record-social.mjs   # live shots for the social cut (its own portrait browser)
+node tools/film/social/compose-social.mjs  # the 30 s social cut -> artifacts/video/social/duck-lab-xr-social.mp4
 ```
 
 The films need the dev server and the trainer engine, and leave both as they
