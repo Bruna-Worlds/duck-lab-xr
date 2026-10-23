@@ -2,10 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The room mesh fills the terrain map (src/room/mesh-heights.ts). The Quest's
- * room scan comes with a mesh of the whole room; the emulated rooms have none,
- * so this checks the function itself, in the page (the dev server compiles
- * the module):
+ * The room mesh fills the terrain map (src/room/mesh-heights.ts), checked on
+ * exact shapes in the page (the dev server compiles the module); terrain-check
+ * seeds the map from the emulated room's own mesh.
  *
  *   npx @iwsdk/cli browser run tools/test/mesh-heights-check.mjs
  */

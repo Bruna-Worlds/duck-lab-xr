@@ -118,6 +118,37 @@ export default async function run({ page, frame }) {
     `${s.agreeing} of ${s.depthTall} tall depth cells touch a scanned wall or furniture (${s.depthTall ? ((100 * s.agreeing) / s.depthTall).toFixed(0) : 0}%)`,
   );
 
+  // The room scan's mesh seeds the map before the sensor has looked around: re-seed from it alone.
+  const seed = await target.evaluate(async () => {
+    const d = globalThis.__duck;
+    const t = d.terrain;
+    const mesh = d.room.globalMesh();
+    t.frozen = true;
+    t.heights.fill(-1);
+    t.seeded = false; // seeds again on the next update
+    t.touch();
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const N = 201;
+    let raised = 0;
+    let isolated = 0;
+    for (let row = 1; row < N - 1; row++) {
+      for (let col = 1; col < N - 1; col++) {
+        if (!(t.heights[row * N + col] >= 0.025)) continue;
+        raised++;
+        let near = 0;
+        for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) if (t.heights[(row + dr) * N + col + dc] >= 0.025) near++;
+        if (near === 0) isolated++;
+      }
+    }
+    t.frozen = false;
+    return { triangles: mesh?.geometry.index ? mesh.geometry.index.count / 3 : 0, raised, isolated };
+  });
+  check(
+    'the room mesh seeds the map',
+    seed.triangles > 0 && seed.raised > 500 && seed.isolated < 0.05 * seed.raised,
+    `${seed.triangles} triangles -> ${seed.raised} raised cells, ${seed.isolated} on their own`,
+  );
+
   // Pip cam draws every raised cell (neighbours merged into blocks), not just the first few thousand.
   const cam = await target.evaluate(async () => {
     const d = globalThis.__duck;

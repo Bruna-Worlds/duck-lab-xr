@@ -545,11 +545,15 @@ export class RoomSystem extends createSystem({
     }
   }
 
-  /** The scan's global (room) mesh, if the headset provides one. */
+  /**
+   * The scan's global (room) mesh, if the headset provides one. IWSDK blanks
+   * its label in the component (and marks it unbounded), so it is found by
+   * the WebXR mesh's own label.
+   */
   globalMesh(): Mesh | null {
     for (const entity of this.queries.meshes.entities) {
-      const label = entity.getValue(XRMeshComponent, 'semanticLabel') as string;
-      if (label === 'global mesh' && entity.object3D instanceof Mesh) {
+      const mesh = entity.getValue(XRMeshComponent, '_mesh') as { semanticLabel?: string } | undefined;
+      if (mesh?.semanticLabel === 'global mesh' && entity.object3D instanceof Mesh) {
         return entity.object3D;
       }
     }
