@@ -10,7 +10,7 @@
  *   node tools/film/trailer/music.mjs <cut.json> <out.wav>
  *
  * Shape: a curious intro (simulation vs home, a dip when the duck falls), a
- * light groove for the headset clips, a steady bed under the real footage
+ * light groove for the headset clips (concept and Quest), a steady bed under the real footage
  * (chimes where things arrive), a fuller payoff for the real robot, and a warm
  * resolve on the end card. G major, 112 bpm.
  */
@@ -38,7 +38,7 @@ for (let t0 = 0; t0 < DUR; t0 += bar, b++) {
   const [deg, tri] = sec === 'gap' && t0 > (cut.hits.find((h) => h.kind === 'fall')?.t ?? 99) - 0.5 ? [9, MIN] : PROG[b % PROG.length];
   const root = ROOT + deg;
   const intro = sec === 'gap';
-  const groove = sec === 'wear' || sec === 'catch';
+  const groove = sec === 'wear' || sec === 'quest' || sec === 'catch';
   const bed = sec === 'real';
   const pay = sec === 'deploy';
   const end = sec === 'end';

@@ -83,6 +83,38 @@ for (let s = t0; s < tEnd; s += speedAt(s) / FPS) {
   source.push(s);
 }
 if (cuts.length) console.log(`cut ${cuts.map(([a, b]) => `${(b - a).toFixed(1)} s`).join(', ')} of waiting`);
+// Tighter beats: some beats (a caption to the next) are capped, the excess cut just before the
+// next caption (both halves jump; nothing moves much there), and the last beat ends after TAIL s.
+const TRIMS = [
+  [/walks your living room/i, 4.6],
+  [/on the computer a moment later/i, 4.2],
+  [/train on your computer/i, 5.2],
+];
+const TAIL = Number(process.env.STACK_TAIL ?? 11);
+{
+  const frameAt = (s) => {
+    const i = source.findIndex((x) => x >= s);
+    return i < 0 ? source.length : i;
+  };
+  const lead = Math.round(0.4 * FPS);
+  const drops = [];
+  captions.forEach((c, i) => {
+    const next = captions[i + 1];
+    if (!next) {
+      const end = frameAt(c.t) + Math.round(TAIL * FPS);
+      if (end < source.length) drops.push([end, source.length]);
+      return;
+    }
+    const rule = TRIMS.find(([re]) => re.test(c.text));
+    if (!rule) return;
+    const fa = frameAt(c.t);
+    const fb = frameAt(next.t);
+    const excess = fb - fa - Math.round(rule[1] * FPS);
+    if (excess > 0) drops.push([fb - lead - excess, fb - lead]);
+  });
+  for (const [a, b] of drops.sort((x, y) => y[0] - x[0])) source.splice(a, b - a);
+  if (drops.length) console.log(`trimmed ${(drops.reduce((s, [a, b]) => s + b - a, 0) / FPS).toFixed(1)} s from long beats and the tail`);
+}
 const filmOf = (s) => {
   // Film time of a source time (the first film frame at or after it).
   let i = source.findIndex((x) => x >= s);
@@ -125,17 +157,19 @@ const region = (f) => {
   const y = Math.min(Math.max(0, f.y * scale + (f.h * scale) / 2 - h / 2), fh - h);
   return { z: fw / w, x, y };
 };
-const keys = focus.map((f) => ({ frame: Math.round(filmOf(f.t) * FPS), ...region(f) }));
 const ramp = Math.round(0.6 * FPS);
+const keys = focus.map((f) => ({ frame: Math.round(filmOf(f.t) * FPS), ramp: f.ease ? Math.round(f.ease * FPS) : ramp, ...region(f) }));
 const piecewise = (list, field) => {
-  // Hold each key's value; ease linearly into the next over `ramp` frames.
+  // Hold each key's value; ease into the next over its ramp (smoothstep).
   let expr = `${list[list.length - 1][field].toFixed(3)}`;
   for (let k = list.length - 1; k >= 1; k--) {
     const a = list[k - 1];
     const b = list[k];
+    const n = b.ramp ?? ramp;
     const start = b.frame;
-    const end = b.frame + ramp;
-    expr = `if(lt(in,${start}),${a[field].toFixed(3)},if(lt(in,${end}),${a[field].toFixed(3)}+(${(b[field] - a[field]).toFixed(3)})*(in-${start})/${ramp},${expr}))`;
+    const end = b.frame + n;
+    const u = `((in-${start})/${n})`;
+    expr = `if(lt(in,${start}),${a[field].toFixed(3)},if(lt(in,${end}),${a[field].toFixed(3)}+(${(b[field] - a[field]).toFixed(3)})*${u}*${u}*(3-2*${u}),${expr}))`;
   }
   return expr;
 };
@@ -145,8 +179,8 @@ const zoompan = (list, w, h) =>
     : `scale=${w}:${h}:flags=lanczos`;
 const zoomFilter = zoompan(keys, W, HALF);
 
-// --- The headset half's zoom: in on Pip cam when the new brain is offered, out again once Pip walks with it.
-// Pip cam's place in the picture comes from its world position (the recorder's targets) and the seat camera.
+// --- The headset half's zoom: in on Pip cam's live data, out; in on the new brain's offer, out once Pip walks with it.
+// Pip cam's place in the picture comes from its world corners (the recorder's log) and the seat camera.
 const topBox = meta.box ?? { x: 0, y: 0, width: meta.viewport.w, height: meta.viewport.h };
 // At rest the headset picture is trimmed by 5% (anchored at the top): the emulated right
 // controller's axis handles (red and green cones) poke into the bottom corner of the raw view.
@@ -157,7 +191,80 @@ const seatFile = join(TAKES, 'seat.txt');
 const lastTargets = join(TAKES, segments[segments.length - 1], 'targets.json');
 const offerCap = captions.find((c) => /new brain is on the headset/i.test(c.text));
 const walksCap = captions.find((c) => /walks with the brain/i.test(c.text));
-if (existsSync(seatFile) && existsSync(lastTargets) && offerCap) {
+const liveCap = captions.find((c) => /live robot data/i.test(c.text));
+const targetsLog = segments.flatMap((d) => {
+  const file = join(TAKES, d, 'targets-log.jsonl');
+  return existsSync(file)
+    ? readFileSync(file, 'utf8')
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line))
+    : [];
+});
+/** The logged snapshot nearest to wall time t that has `key`. */
+const snapshotAt = (t, key) => {
+  let best = null;
+  for (const s of targetsLog) if (s[key] && s.wall && (!best || Math.abs(s.wall - t) < Math.abs(best.wall - t))) best = s;
+  return best;
+};
+if (existsSync(seatFile) && targetsLog.some((s) => s.wall) && (offerCap || liveCap)) {
+  const [ex, ey, ez, tx, ty, tz] = readFileSync(seatFile, 'utf8').trim().split(/\s+/).map(Number);
+  const tw = topBox.width;
+  const th = topBox.height;
+  const fovy = (Number(process.env.REC_FOV ?? 62) * Math.PI) / 180;
+  const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const unit = (a) => a.map((v) => v / Math.hypot(...a));
+  const E = [ex, ey, ez];
+  const f = unit(sub([tx, ty, tz], E));
+  const r = unit(cross(f, [0, 1, 0]));
+  const u = cross(r, f);
+  const project = (p) => {
+    const d = sub([p.x, p.y, p.z], E);
+    const k = Math.tan(fovy / 2);
+    return [((dot(d, r) / (dot(d, f) * k * (tw / th)) + 1) / 2) * tw, ((1 - dot(d, u) / (dot(d, f) * k)) / 2) * th];
+  };
+  // The headset frames are only about 1250 px wide: closer than this turns to mush.
+  const MAX_TOP_ZOOM = Number(process.env.MAX_TOP_ZOOM ?? 3.2);
+  /** The zoom that shows these world corners filling `fill` of the half (its aspect kept), at most MAX_TOP_ZOOM. */
+  const frameOn = (corners, fill) => {
+    const pts = corners.map(project);
+    const xs = pts.map((p) => p[0]);
+    const ys = pts.map((p) => p[1]);
+    let w = (Math.max(...xs) - Math.min(...xs)) / fill;
+    let h = (Math.max(...ys) - Math.min(...ys)) / fill;
+    if (w / h < tw / th) w = h * (tw / th);
+    else h = w / (tw / th);
+    w = Math.min(tw, Math.max(w, tw / MAX_TOP_ZOOM));
+    h = Math.min(th, Math.max(h, th / MAX_TOP_ZOOM));
+    const cx = (Math.max(...xs) + Math.min(...xs)) / 2;
+    const cy = (Math.max(...ys) + Math.min(...ys)) / 2;
+    return { z: tw / w, x: Math.min(Math.max(0, cx - w / 2), tw - w), y: Math.min(Math.max(0, cy - h / 2), th - h) };
+  };
+  const at = (t) => Math.max(1, Math.round(filmOf(t) * FPS));
+  topKeys.push({ frame: 0, ...rest });
+  if (liveCap) {
+    // Pip cam opened on its live data: the panel, feed and charts, filling most of the picture.
+    const snap = snapshotAt(liveCap.t + 3, 'detailsCorners');
+    const next = captions.find((c) => c.t > liveCap.t);
+    if (snap?.robotCorners) {
+      topKeys.push({ frame: at(liveCap.t + 1.0), ramp: Math.round(0.8 * FPS), ...frameOn(snap.robotCorners, 0.94) });
+      if (next) topKeys.push({ frame: at(next.t - 0.5), ramp: Math.round(0.7 * FPS), ...rest });
+      console.log(`headset zoom: live data ${topKeys[topKeys.length - (next ? 2 : 1)].z.toFixed(2)}x`);
+    }
+  }
+  if (offerCap) {
+    // The new brain's card on Pip cam, close enough to read: NEW BRAIN READY, its numbers, TRY IT.
+    const snap = snapshotAt(offerCap.t + 0.5, 'offerCorners');
+    if (snap?.offerCorners) {
+      topKeys.push({ frame: at(offerCap.t - 0.4), ramp: Math.round(0.8 * FPS), ...frameOn(snap.offerCorners, 0.82) });
+      if (walksCap) topKeys.push({ frame: at(walksCap.t + 0.6), ...rest });
+      console.log(`headset zoom: offer card ${topKeys[topKeys.length - (walksCap ? 2 : 1)].z.toFixed(2)}x`);
+    }
+  }
+}
+if (!topKeys.length && existsSync(seatFile) && existsSync(lastTargets) && offerCap) {
   const [ex, ey, ez, tx, ty, tz] = readFileSync(seatFile, 'utf8').trim().split(/\s+/).map(Number);
   const tw = topBox.width;
   const th = topBox.height;
@@ -233,7 +340,7 @@ const filmEnd = source.length / FPS;
 const capTimes = captions.map((c, i) => {
   const a = filmOf(c.t);
   const next = i + 1 < captions.length ? filmOf(captions[i + 1].t) : filmEnd;
-  return { a, b: Math.min(next, a + 6.5) };
+  return { a, b: i + 1 < captions.length ? Math.min(next, a + 6.5) : filmEnd - 0.1 };
 });
 const ffWindows = [];
 for (let i = 0; i < speeds.length; i++) {

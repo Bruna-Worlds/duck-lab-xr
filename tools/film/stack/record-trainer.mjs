@@ -6,12 +6,14 @@
  * page from the website (https://localhost:8081/trainer/, so it pairs with the
  * emulated headset over WebRTC for real) in a browser of its own, and plays
  * its part of the story as things arrive over the link:
- *   - shows the pairing code (code.txt, for the driver) and waits for the headset;
+ *   - shows the pairing code (code.txt, for the driver) and waits for the headset,
+ *     then shows the whole page while Pip walks;
  *   - waits for the test case the headset sends, shows it arriving;
  *   - replays a known falls test case with the shipped brain (it falls);
  *   - trains on it for a short while (filmed fast), stops;
- *   - sends the brain trained earlier on these test cases (LAB_SHOWN) to the
- *     headset (offered.txt), and waits for the driver's done.txt.
+ *   - close on that brain's release card, sends it to the headset (offered.txt),
+ *     then shows the pairing card (the headset, what it sent and runs) until the
+ *     driver's done.txt.
  * Frames carry wall-clock times (Date.now seconds) like the headset recorder,
  * so the composer lines both halves up. Also writes marks.txt (captions and
  * "!ff N" speed changes, wall clock) and focus.json (which card to zoom on, in
@@ -27,7 +29,8 @@ const SITE = process.env.SITE ?? 'https://localhost:8081/';
 const FALLS = process.env.LAB_FALLS ?? '2026-10-22T07-53-10-falls';
 const SHOWN = process.env.LAB_SHOWN ?? 'room-tuned';
 const VIEW = { width: 1440, height: 1120 };
-const SCALE = 1.5;
+// Drawn at twice the page size: the film zooms close onto single cards.
+const SCALE = Number(process.env.TRAINER_SCALE ?? 2);
 rmSync(dir, { recursive: true, force: true });
 mkdirSync(`${dir}/frames`, { recursive: true });
 
@@ -44,6 +47,12 @@ let count = 0;
 const browser = await chromium.launch({ headless: true, args: ['--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-blocklist'] });
 const context = await browser.newContext({ viewport: VIEW, deviceScaleFactor: SCALE, ignoreHTTPSErrors: true });
 const page = await context.newPage();
+
+/** Zoom the film onto a box in page px (a locator's bounding box), with padding; `ease` seconds to get there. */
+function zoomBox(rect, pad = 10, ease) {
+  if (!rect) return zoom(null);
+  focus.push({ t: now(), x: rect.x - pad, y: rect.y - pad, w: rect.width + 2 * pad, h: rect.height + 2 * pad, ...(ease ? { ease } : {}) });
+}
 
 /** Zoom the film onto the card holding `selector` (padding in page px), or the whole page. */
 async function zoom(selector, pad = 14) {
@@ -106,11 +115,12 @@ try {
     writeFileSync(`${dir}/frames/${file}`, Buffer.from(data, 'base64'));
     frames.push({ file, t: metadata.timestamp });
   });
-  await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 86, maxWidth: VIEW.width * SCALE, maxHeight: VIEW.height * SCALE, everyNthFrame: 1 });
+  await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 86, maxWidth: VIEW.width * SCALE, maxHeight: VIEW.height * SCALE, everyNthFrame: 2 }); // about 30 fps, what the film shows
   await zoom(null);
   // The headset pairs (the driver types this page's code into it).
   await page.waitForFunction(() => document.getElementById('chip-headset')?.className.includes('on'), null, { timeout: 120000 });
-  await zoom('.pair-card', 18);
+  // The whole trainer while Pip walks; the pairing card gets its close-up later, once a brain went over.
+  await zoom(null);
   writeFileSync(`${dir}/../paired.txt`, String(now()));
 
   // The headset's test case arrives over the link.
@@ -118,9 +128,9 @@ try {
   await page.waitForFunction((n) => document.querySelectorAll('.pack[data-id]').length > n, before, { timeout: 180000 });
   await zoom('#packs', 12);
   mark('On the computer a moment later, over your Wi-Fi');
-  await page.waitForTimeout(2600);
+  await page.waitForTimeout(1900);
   await page.locator('.pack[data-id]').first().click();
-  await page.waitForTimeout(2600);
+  await page.waitForTimeout(1900);
 
   // A known falls test case, replayed with the shipped brain.
   const falls = page.locator(`.pack[data-id="${FALLS}"]`);
@@ -164,14 +174,14 @@ try {
   const card = page.locator('.release', { hasText: SHOWN }).first();
   await card.scrollIntoViewIfNeeded();
   await page.waitForTimeout(400);
-  await zoom('#releases', 12);
+  zoomBox(await card.boundingBox(), 8);
   const numbers = /falls (\d+%) to (\d+%)/.exec((await card.textContent()) ?? '');
   mark(numbers ? `A brain trained on these moments: falls ${numbers[1]} to ${numbers[2]}. Send it to the headset` : 'Send the brain trained on these moments to the headset');
   await page.waitForTimeout(2600);
   const send = card.locator('[data-activate]');
   if (await send.count()) await send.click();
   writeFileSync(`${dir}/../offered.txt`, String(now()));
-  await page.waitForTimeout(1500);
+  await page.waitForTimeout(1800); // the card's button turns to "Offered"
   await page.locator('.pair-card').scrollIntoViewIfNeeded();
   await zoom('.pair-card', 18);
   await waitFile('done.txt', 120);

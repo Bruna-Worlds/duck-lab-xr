@@ -3,17 +3,22 @@
 
 /**
  * The Duck Lab XR trailer (1080 x 1920, 30 fps, for phones): concept clips
- * rendered in Blender (the vision: a person in a headset, the simulation in
- * the real room, a stumble sent to the computer, the brain on the real robot),
- * the real app recorded in the stacked view (tools/film/stack), an end card,
- * and an original synthesized score written to this cut (music.mjs).
+ * rendered in Blender with the real Microduck model (the vision: a person in a
+ * headset, the simulation in the real room, a stumble sent to the computer,
+ * the brain on the real robot), real footage from a Meta Quest 3 (scene
+ * understanding and depth sensing: Pip walks into a real chair, steps onto a
+ * dog bed and falls off), the real app recorded in the stacked view
+ * (tools/film/stack), an end card, and an original synthesized score written
+ * to this cut (music.mjs).
  *
  *   node tools/film/trailer/compose-trailer.mjs [frames dir] [out.mp4]
  *
- * frames dir (default artifacts/video/concept) holds the Blender renders per
- * clip (sim, home, wear, catch, deploy: 0000.jpg ...), rendered in Blender by
- * scripts kept outside this repository. Concept clips
- * carry a "CONCEPT ANIMATION" tag; the recorded part says it is the real app.
+ * frames dir (default artifacts/video/concept-real) holds the Blender renders
+ * per clip (sim, home, wear, catch, deploy: 0000.jpg ...), rendered in Blender
+ * by scripts kept outside this repository. The headset takes are
+ * artifacts/video/quest/a.mov and b.mov (QUEST_A, QUEST_B), kept out of git.
+ * Concept clips carry a "CONCEPT ANIMATION" tag, the headset takes "SHOT ON
+ * META QUEST 3", and the recorded app says it is the real app.
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -21,7 +26,7 @@ import { join, resolve } from 'node:path';
 import { chromium } from 'playwright';
 import { findFfmpeg } from '../ffmpeg.mjs';
 
-const FRAMES = process.argv[2] ?? 'artifacts/video/concept';
+const FRAMES = process.argv[2] ?? 'artifacts/video/concept-real';
 const OUTFILE = process.argv[3] ?? 'artifacts/video/trailer.mp4';
 const STACK = 'artifacts/video/stack.mp4';
 const FFMPEG = findFfmpeg();
@@ -32,6 +37,19 @@ const work = 'artifacts/video/trailer-work';
 rmSync(work, { recursive: true, force: true });
 mkdirSync(work, { recursive: true });
 const run = (args) => execFileSync(FFMPEG, ['-y', '-loglevel', 'error', ...args], { stdio: ['ignore', 'ignore', 'inherit'] });
+/** Width and height of a PNG (its IHDR). */
+const pngSize = (file) => {
+  const b = readFileSync(file);
+  return { w: b.readUInt32BE(16), h: b.readUInt32BE(20) };
+};
+
+// The headset takes (Meta Quest 3, 1920 x 1080): each shown at full resolution in a
+// 1080 x 900 window (the top strip, with the headset's performance overlay, left out).
+const QUEST_SHOTS = [
+  { file: process.env.QUEST_A ?? 'artifacts/video/quest/a.mov', from: 0.8, dur: 3.6, crop: [420, 180] }, // into the chair
+  { file: process.env.QUEST_B ?? 'artifacts/video/quest/b.mov', from: 5.2, dur: 6.0, crop: [250, 180] }, // onto the dog bed, and off
+];
+const QUEST_WIN = { y: 330, h: 900 };
 
 // --- The cut ----------------------------------------------------------------------------
 const stackEvents = JSON.parse(readFileSync(`${STACK}.events.json`, 'utf8'));
@@ -46,6 +64,15 @@ const CLIPS = [
     hits: [{ t: 2.35, kind: 'fall' }],
   },
   { key: 'wear', dur: 5.0, captions: [{ a: 0.3, b: 5.0, text: 'Put on a headset: the simulation runs in your real room' }], hits: [{ t: 0.1, kind: 'scan', len: 2.5 }, { t: 4.15, kind: 'quack' }] },
+  {
+    key: 'quest',
+    dur: QUEST_SHOTS.reduce((s, q) => s + q.dur, 0),
+    captions: [
+      { a: 0.3, b: 3.5, text: 'Your real furniture becomes solid: Pip walks into the chair' },
+      { a: 3.8, b: 9.4, text: 'It steps onto the dog bed, and falls off, as a real robot would' },
+    ],
+    hits: [{ t: 6.4, kind: 'fall' }],
+  },
   {
     key: 'catch',
     dur: 5.6,
@@ -102,7 +129,13 @@ body { background: transparent; font-family: 'Segoe UI', system-ui, sans-serif; 
 .end .flow { font: 50px/1 Bebas; letter-spacing: 4px; color: #3de0b8; }
 .end .url { font: 64px/1 Bebas; letter-spacing: 3px; color: #ffcf3f; margin-top: 30px; }
 .end .by { font: 700 34px/1 'Segoe UI', sans-serif; color: rgba(255, 244, 220, 0.85); }
-.end .small { font: 600 22px/1.4 'Segoe UI', sans-serif; color: rgba(255, 244, 220, 0.5); max-width: 860px; margin-top: 50px; }`;
+.end .small { font: 600 22px/1.4 'Segoe UI', sans-serif; color: rgba(255, 244, 220, 0.5); max-width: 860px; margin-top: 50px; }
+.qbg { width: ${W}px; height: ${H}px; background: radial-gradient(circle at 50% 40%, #1c1d36, #0f1020 72%); }
+.qhead { width: ${W}px; text-align: center; font: 58px/1 Bebas; letter-spacing: 4px; color: #3de0b8; padding: 10px 0; }
+.qflow { width: ${W}px; text-align: center; padding: 6px 0; }
+.qflow .f { font: 64px/1 Bebas; letter-spacing: 5px; color: rgba(255, 244, 220, 0.3); }
+.qflow .f b { font-weight: normal; color: #ffcf3f; }
+.qflow .s { font: 600 30px/1.3 'Segoe UI', sans-serif; color: rgba(255, 244, 220, 0.75); margin-top: 14px; }`;
 const browser = await chromium.launch({ headless: true });
 const shot = async (name, html, width, height) => {
   const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
@@ -120,6 +153,10 @@ for (const c of CLIPS) {
   for (let i = 0; i < c.captions.length; i++) await shot(`cap-${c.key}-${i}.png`, `<div class="cap"><div>${esc(c.captions[i].text)}</div></div>`, W, 400);
 }
 await shot('tag-concept.png', '<div class="tag">CONCEPT ANIMATION</div>', 500, 80);
+await shot('tag-quest.png', '<div class="tag" style="color:#0f1020;background:#ffcf3f;border-color:#ffcf3f">SHOT ON META QUEST 3</div>', 600, 80);
+await shot('quest-bg.png', '<div class="qbg"></div>', W, H);
+await shot('quest-head.png', '<div class="qhead">SCENE UNDERSTANDING + DEPTH SENSING</div>', W, 120);
+await shot('quest-flow.png', '<div class="qflow"><div class="f"><b>REAL &rarr; SIM</b> &rarr; REAL</div><div class="s">Your real room, inside the simulation</div></div>', W, 160);
 await shot('tag-real.png', '<div class="tag" style="color:#0f1020;background:#3de0b8;border-color:#3de0b8">THE REAL APP, RECORDED</div>', 600, 80);
 await shot('half-sim.png', '<div class="half" style="background:#6fb7ff">&#10003; IN SIMULATION</div>', 600, 90);
 await shot('half-home.png', '<div class="half" style="background:#ff5c8a">&#10007; AT HOME</div>', 600, 90);
@@ -167,7 +204,29 @@ for (const c of CLIPS) {
     run([...inputs, '-filter_complex', filter, '-map', '[v]', '-t', c.dur.toFixed(3), ...encode, out]);
   } else if (c.key === 'stack') {
     const inputs = ['-i', STACK, ...imgInput('tag-real.png', c.dur)];
-    const filter = [`[0:v]scale=${W}:${H},setsar=1,fps=${FPS}[base]`, ...overlayChain('base', [{ input: 1, x: (W - 420) / 2, y: 862, a: 0.0, b: 3.6 }])].join(';');
+    // The tag in the headset half's free top-right corner (the HEADSET label holds the left, the band its own line).
+    const tag = pngSize(join(work, 'tag-real.png'));
+    const filter = [`[0:v]scale=${W}:${H},setsar=1,fps=${FPS}[base]`, ...overlayChain('base', [{ input: 1, x: W - 28 - tag.w, y: 24, a: 0.0, b: 3.6 }])].join(';');
+    run([...inputs, '-filter_complex', filter, '-map', '[v]', '-t', c.dur.toFixed(3), ...encode, out]);
+  } else if (c.key === 'quest') {
+    // The real headset takes, one after the other, in a window on a dark page.
+    const inputs = [...imgInput('quest-bg.png', c.dur)];
+    for (const q of QUEST_SHOTS) inputs.push('-ss', q.from.toFixed(3), '-t', q.dur.toFixed(3), '-i', q.file);
+    const imgs = ['quest-head.png', 'quest-flow.png', 'tag-quest.png', ...c.captions.map((_, i) => `cap-quest-${i}.png`)];
+    for (const img of imgs) inputs.push(...imgInput(img, c.dur));
+    const n = QUEST_SHOTS.length;
+    const parts = QUEST_SHOTS.map((q, i) => `[${1 + i}:v]crop=${W}:${QUEST_WIN.h}:${q.crop[0]}:${q.crop[1]},fps=${FPS},setpts=PTS-STARTPTS,setsar=1,format=yuv420p[q${i}]`);
+    parts.push(`${QUEST_SHOTS.map((_, i) => `[q${i}]`).join('')}concat=n=${n}:v=1:a=0[clip]`);
+    parts.push(`[0:v]scale=${W}:${H},setsar=1,format=yuv420p[bg]`, `[bg][clip]overlay=x=0:y=${QUEST_WIN.y}:eof_action=repeat[base]`);
+    const k = 1 + n;
+    const tag = pngSize(join(work, 'tag-quest.png'));
+    const items = [
+      { input: k, x: 0, y: QUEST_WIN.y - 130 },
+      { input: k + 1, x: 0, y: 1650 },
+      { input: k + 2, x: W - 40 - tag.w, y: 40 },
+      ...c.captions.map((cap, i) => ({ input: k + 3 + i, x: 0, y: QUEST_WIN.y + QUEST_WIN.h + 40, a: cap.a, b: cap.b })),
+    ];
+    const filter = [...parts, ...overlayChain('base', items)].join(';');
     run([...inputs, '-filter_complex', filter, '-map', '[v]', '-t', c.dur.toFixed(3), ...encode, out]);
   } else if (c.key === 'end') {
     const filter = `[0:v]scale=${W * 2}:${H * 2},zoompan=z='1+0.04*on/${Math.round(c.dur * FPS)}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${W}x${H}:fps=${FPS},format=yuv420p[v]`;

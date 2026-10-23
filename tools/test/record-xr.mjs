@@ -9,13 +9,15 @@
  *   - every 250 ms writes artifacts/video/<REC_NAME>/targets.json: world
  *     positions of the robot panel's bar, corner grip and buttons, the menu's
  *     chips, the duck, and a little app state, so a driver script can aim
- *     the emulated controllers (`xr look-at`) at them.
+ *     the emulated controllers (`xr look-at`) at them; the same snapshots,
+ *     with the wall clock and the world corners of Pip cam, its offer card and
+ *     its details, go to targets-log.jsonl (a film can zoom on them).
  * The app frame's box goes to meta.json for cropping, with a label for the
  * film saying where it was recorded (the emulator, AR or VR mode).
  *
  *   REC_NAME=ar-demo REC_SECONDS=70 npx @iwsdk/cli browser run tools/test/record-xr.mjs --timeout 100000
  */
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 
 export default async function run({ page, frame }) {
   const app = frame ?? page;
@@ -105,8 +107,26 @@ export default async function run({ page, frame }) {
         const robot = w.getSceneObject('robot-panel');
         const menu = w.getSceneObject('menu-panel');
         const el = (asset, id) => point(asset?.getElementById(id));
+        // A UIKit element is a unit quad scaled by its world matrix: its four corners in the world.
+        const corners = (object) => {
+          if (!object?.matrixWorld || !object.isMesh) return null;
+          object.updateWorldMatrix(true, false);
+          return [
+            [-0.5, -0.5],
+            [0.5, -0.5],
+            [0.5, 0.5],
+            [-0.5, 0.5],
+          ].map(([x, y]) => {
+            const p = object.position.clone().set(x, y, 0).applyMatrix4(object.matrixWorld);
+            return { x: p.x, y: p.y, z: p.z };
+          });
+        };
         return {
           t: performance.now(),
+          wall: Date.now() / 1000,
+          robotCorners: corners(robot?.document?.rootElement),
+          offerCorners: robot?.getElementById('rp-offer')?.isVisible?.value ? corners(robot.getElementById('rp-offer')) : null,
+          detailsCorners: robot?.getElementById('rp-details')?.isVisible?.value ? corners(robot.getElementById('rp-details')) : null,
           bar: point(scene.getObjectByName('robot-panel-bar')),
           grip: point(scene.getObjectByName('robot-panel-resizer')),
           more: el(robot, 'rp-more'),
@@ -155,7 +175,10 @@ export default async function run({ page, frame }) {
         };
       })
       .catch(() => null);
-    if (targets) writeFileSync(`${dir}/targets.json`, JSON.stringify(targets));
+    if (targets) {
+      writeFileSync(`${dir}/targets.json`, JSON.stringify(targets));
+      appendFileSync(`${dir}/targets-log.jsonl`, `${JSON.stringify(targets)}\n`);
+    }
     if (++ticks % 8 === 0) await film(true, 0, null).catch(() => {}); // the badge comes back when the session restarts
     await page.waitForTimeout(250);
   }
