@@ -200,6 +200,7 @@ if (staleHeadsetTab) {
         labLink: world.getSystem(LabLinkSystem),
         views: world.getSystem(ViewSwitchSystem),
         controls: world.getSystem(ControlsCardSystem),
+        orbit: world.getSystem(OrbitCameraSystem),
       };
     }
   });

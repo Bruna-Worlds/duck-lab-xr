@@ -42,6 +42,7 @@ import {
 } from '@iwsdk/core';
 import { RoomSystem } from '../room/room-system.js';
 import { TerrainSystem } from '../room/terrain-system.js';
+import { OrbitCameraSystem } from '../ui/orbit-camera-system.js';
 import { DEFAULT_POSE } from './duck-constants.js';
 import type { DuckRig } from './duck-rig.js';
 import { DuckStage } from './duck-stage.js';
@@ -118,6 +119,7 @@ export class DuckCamSystem extends createSystem({
   vision!: DuckVision;
   private duck: DuckSystem | undefined;
   private room: RoomSystem | undefined;
+  private orbit: OrbitCameraSystem | undefined;
   private terrain: TerrainSystem | undefined;
   private eye!: PerspectiveCamera;
   private target!: WebGLRenderTarget;
@@ -371,6 +373,9 @@ export class DuckCamSystem extends createSystem({
     if (blocks) blocks.visible = true;
     const visionView = this.view === 'vision';
     this.room?.setCamView(true, visionView);
+    // The 2D page hides walls the player looks through from outside; the duck is inside the room.
+    this.orbit ??= this.world.getSystem(OrbitCameraSystem);
+    this.orbit?.revealHidden(true);
     rigRoot.visible = false;
     // The 2D page's screen-space panels hang under the player's camera, the
     // player's rig carries the controllers and hands, and the robot panel
@@ -428,6 +433,7 @@ export class DuckCamSystem extends createSystem({
     player.visible = playerWasVisible;
     rigRoot.visible = true;
     this.room?.setCamView(false);
+    this.orbit?.revealHidden(false);
     if (blocks) blocks.visible = blocksWereVisible;
     this.frames++;
   }

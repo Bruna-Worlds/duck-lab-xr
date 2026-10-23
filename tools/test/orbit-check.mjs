@@ -77,6 +77,41 @@ try {
     await page.waitForTimeout(200);
     const after2 = await eye(page);
     check('a drag that starts on a panel does not turn it', moved(still, after2) < 0.01, `${fmt(still)} -> ${fmt(after2)}`);
+    // Walls: from behind the back wall it hides, so the course stays in view; inside, all stand.
+    const walls = async (theta, radius) => {
+      await page.evaluate(([theta, radius]) => {
+        const o = globalThis.__duck.orbit;
+        o.spherical.theta = theta;
+        o.spherical.radius = radius;
+        o.spherical.phi = 1.2;
+        o.dirty = true;
+      }, [theta, radius]);
+      await page.waitForTimeout(300);
+      return page.evaluate(() => {
+        const s = globalThis.__duck.world.scene;
+        const shown = (name) => s.getObjectByName(name)?.visible ?? null;
+        return { back: shown('BackWall'), front: shown('FrontWall'), left: shown('LeftWall'), right: shown('RightWall'), ceiling: shown('CeilingSide') };
+      });
+    };
+    const behind = await walls(Math.PI, 6);
+    check('the wall between the camera and the course hides', behind.back === false && behind.front === true && behind.left === true && behind.right === true, JSON.stringify(behind).replace(/"/g, ''));
+    const inside = await walls(0, 1.5);
+    check('inside the room every wall stands', Object.values(inside).every((v) => v === true), JSON.stringify(inside).replace(/"/g, ''));
+    // Furniture: from outside the right wall the pieces along it that stand in the way hide too.
+    const furniture = async (theta, radius) => {
+      await walls(theta, radius);
+      await page.waitForTimeout(1700); // the next scan of the room
+      return page.evaluate(() => {
+        const s = globalThis.__duck.world.scene;
+        const out = {};
+        for (const name of ['Sofa', 'SideTable', 'Bookshelf', 'FloorLamp', 'Plant', 'ToyChest']) out[name] = s.getObjectByName(name)?.visible ?? null;
+        return out;
+      });
+    };
+    const right = await furniture(Math.PI / 2, 4.6);
+    check('furniture in the way of the course hides', right.Sofa === false || right.SideTable === false, JSON.stringify(right).replace(/"/g, ''));
+    const middle = await furniture(0, 1.5);
+    check('furniture out of the way stands', Object.values(middle).every((v) => v === true), JSON.stringify(middle).replace(/"/g, ''));
     await context.close();
   }
   // Phone: one finger, real touch events.
@@ -92,6 +127,71 @@ try {
     await page.waitForTimeout(200);
     const turned = await eye(page);
     check('a finger drag over the floor turns the camera (phone)', moved(start, turned) > 0.2, `${fmt(start)} -> ${fmt(turned)}`);
+    // The editor: a finger drag that starts on a piece moves the piece, not the camera.
+    await page.evaluate(() => {
+      const d = globalThis.__duck;
+      if (!d.editor.editing) d.editor.toggle();
+      // Look at a book stack, so it stands in the middle of the screen.
+      const o = d.orbit;
+      for (const entity of d.editor.queries.pieces.entities) {
+        const object = entity.object3D;
+        if (!object || !/book/.test(String(object.userData.iwsdkSceneAssetId))) continue;
+        object.getWorldPosition(o.target);
+        break;
+      }
+      o.spherical.theta = 0.3;
+      o.spherical.radius = 1.3;
+      o.spherical.phi = 0.8;
+      o.dirty = true;
+    });
+    await page.waitForTimeout(500);
+    const piece = await page.evaluate(() => {
+      const d = globalThis.__duck;
+      const camera = d.world.camera;
+      const canvas = d.world.renderer.domElement;
+      const rect = canvas.getBoundingClientRect();
+      const names = [];
+      // A solid piece (a book stack: a gate's origin is its open middle), aimed at the middle of its box.
+      const pieces = [...d.editor.queries.pieces.entities].sort((a, b) => {
+        const rank = (e) => (/book/.test(String(e.object3D?.userData.iwsdkSceneAssetId)) ? 0 : 1);
+        return rank(a) - rank(b);
+      });
+      for (const entity of pieces) {
+        const o = entity.object3D;
+        if (!o) continue;
+        const id = o.userData.iwsdkSceneAssetId ?? o.name;
+        if (!/book|goal/.test(String(id))) continue;
+        const box = new (camera.position.constructor === Object ? Object : globalThis.__duck.orbit.courseBox.constructor)();
+        box.setFromObject(o);
+        const p = box.getCenter(o.position.clone());
+        const ndc = p.clone().project(camera);
+        const x = rect.left + ((ndc.x + 1) / 2) * rect.width;
+        const y = rect.top + ((1 - ndc.y) / 2) * rect.height;
+        names.push(String(id));
+        if (x > 40 && x < rect.width - 40 && y > rect.height * 0.3 && y < rect.height * 0.62) return { id: String(id), index: entity.index, x, y, at: [o.position.x, o.position.z] };
+      }
+      return { none: names.join(',') };
+    });
+    if (piece.none !== undefined) {
+      check('a finger drag on a piece moves the piece in the editor (phone)', false, `no piece on screen (${piece.none})`);
+    } else {
+      const camBefore = await eye(page);
+      await touch('touchStart', piece.x, piece.y);
+      await page.waitForTimeout(120);
+      for (let i = 1; i <= 10; i++) {
+        await touch('touchMove', piece.x + i * 6, piece.y + i * 2);
+        await page.waitForTimeout(30);
+      }
+      await touch('touchEnd', 0, 0);
+      await page.waitForTimeout(400);
+      const after = await page.evaluate((index) => {
+        for (const entity of globalThis.__duck.editor.queries.pieces.entities) if (entity.index === index) return [entity.object3D.position.x, entity.object3D.position.z];
+        return null;
+      }, piece.index);
+      const camAfter = await eye(page);
+      const shift = after ? Math.hypot(after[0] - piece.at[0], after[1] - piece.at[1]) : 0;
+      check('a finger drag on a piece moves the piece in the editor (phone)', shift > 0.03 && moved(camBefore, camAfter) < 0.01, `${piece.id} moved ${(100 * shift).toFixed(1)} cm, camera moved ${moved(camBefore, camAfter).toFixed(3)} m`);
+    }
     await context.close();
   }
 } finally {

@@ -20,6 +20,7 @@ import {
   Matrix4,
   Mesh,
   MeshStandardMaterial,
+  type Object3D,
   PlaneGeometry,
   SphereGeometry,
 } from '@iwsdk/core';
@@ -137,10 +138,10 @@ const WAINSCOT = 0.92;
 const WALL_COLOR = 0xe9dcc3;
 const TRIM = 0xf6f2ea;
 
-/** Wall shell, wainscoting with raised panels, chair rail, base and crown trim. */
-function walls(): BufferGeometry {
+/** One wall: its shell, wainscoting with raised panels, chair rail, base and crown trim. */
+function wallGeometry(cx: number, cz: number, alongX: boolean): BufferGeometry {
   const parts: ColoredPart[] = [];
-  const wall = (cx: number, cz: number, alongX: boolean) => {
+  {
     const w = alongX ? 2 * HALF : 0.1;
     const d = alongX ? 0.1 : 2 * HALF;
     parts.push({ geometry: bevelBox(w, WALL_H, d, 0.002), matrix: at(cx, WALL_H / 2, cz), color: WALL_COLOR });
@@ -169,12 +170,21 @@ function walls(): BufferGeometry {
         color: 0xfdfbf6,
       });
     }
-  };
-  wall(0, -HALF - 0.05, true);
-  wall(0, HALF + 0.05, true);
-  wall(-HALF - 0.05, 0, false);
-  wall(HALF + 0.05, 0, false);
+  }
   return mergeColored(parts);
+}
+
+/**
+ * Tags a part of the room the 2D page's camera may look through from outside:
+ * `normal` points into the room and `point` lies on its inner face (both in
+ * the part's frame). src/ui/orbit-camera-system.ts hides the part while the
+ * camera is on its outer side, so a wall never stands between the camera and
+ * the course. Furniture is tagged `{ occluder: true }` instead: it hides
+ * while it stands in the way of the course (furniture()).
+ */
+function cutaway(object: Object3D, normal: [number, number, number], point: [number, number, number]): Object3D {
+  object.userData.cutaway = { normal, point };
+  return object;
 }
 
 const WINDOW_X = 0.6;
@@ -316,15 +326,29 @@ function sideTable(parts: ColoredPart[], x: number, z: number): void {
   parts.push({ geometry: new CylinderGeometry(0.045, 0.04, 0.09, 12), matrix: at(x + 0.05, 0.56, z - 0.05), color: 0xf2e9d8 }); // mug
 }
 
-function furniture(): BufferGeometry {
-  const parts: ColoredPart[] = [];
-  sofa(parts, HALF - 0.55, -0.2, Math.PI); // right wall, facing the room
-  sideTable(parts, HALF - 0.45, -1.3);
-  bookshelf(parts, -HALF + 0.2, -1.5, 0); // left wall, facing the room
-  floorLamp(parts, HALF - 0.45, -2.5);
-  plant(parts, -HALF + 0.45, -2.55);
-  toyChest(parts, -HALF + 0.33, 1.2);
-  return mergeColored(parts);
+/**
+ * The furniture, one mesh per piece: the 2D page hides a piece while it stands
+ * between its camera and the course (userData.cutaway, see cutaway()).
+ */
+function furniture(material: ReturnType<typeof toyMaterial>): Group {
+  const group = new Group();
+  group.name = 'Furniture';
+  const piece = (name: string, build: (parts: ColoredPart[]) => void) => {
+    const parts: ColoredPart[] = [];
+    build(parts);
+    const mesh = new Mesh(mergeColored(parts), material);
+    mesh.name = name;
+    mesh.receiveShadow = true;
+    mesh.userData.cutaway = { occluder: true };
+    group.add(mesh);
+  };
+  piece('Sofa', (parts) => sofa(parts, HALF - 0.55, -0.2, Math.PI)); // right wall, facing the room
+  piece('SideTable', (parts) => sideTable(parts, HALF - 0.45, -1.3));
+  piece('Bookshelf', (parts) => bookshelf(parts, -HALF + 0.2, -1.5, 0)); // left wall, facing the room
+  piece('FloorLamp', (parts) => floorLamp(parts, HALF - 0.45, -2.5));
+  piece('Plant', (parts) => plant(parts, -HALF + 0.45, -2.55));
+  piece('ToyChest', (parts) => toyChest(parts, -HALF + 0.33, 1.2));
+  return group;
 }
 
 // ---- Assembly --------------------------------------------------------------------
@@ -365,9 +389,28 @@ function buildToyRoom(): Group {
   rug.position.set(0.05, 0.004, -1.3);
   rug.receiveShadow = true;
 
-  const shell = new Mesh(walls(), toyMaterial(0xffffff, 0.85, 0, { vertexColors: true }));
-  shell.name = 'Walls';
-  shell.receiveShadow = true;
+  // The four walls, each a group with what hangs on it, so the 2D page's camera can look in
+  // from outside: see cutaway().
+  const wallMaterial = toyMaterial(0xffffff, 0.85, 0, { vertexColors: true });
+  const wall = (name: string, cx: number, cz: number, alongX: boolean): Group => {
+    const group = new Group();
+    group.name = name;
+    const shell = new Mesh(wallGeometry(cx, cz, alongX), wallMaterial);
+    shell.name = `${name}Shell`;
+    shell.receiveShadow = true;
+    group.add(shell);
+    const inward: [number, number, number] = alongX ? [0, 0, -Math.sign(cz)] : [-Math.sign(cx), 0, 0];
+    const face: [number, number, number] = alongX ? [0, 0, Math.sign(cz) * HALF] : [Math.sign(cx) * HALF, 0, 0];
+    cutaway(group, inward, face);
+    return group;
+  };
+  const backWall = wall('BackWall', 0, -HALF - 0.05, true);
+  const frontWall = wall('FrontWall', 0, HALF + 0.05, true);
+  const leftWall = wall('LeftWall', -HALF - 0.05, 0, false);
+  const rightWall = wall('RightWall', HALF + 0.05, 0, false);
+  const walls = new Group();
+  walls.name = 'Walls';
+  walls.add(backWall, frontWall, leftWall, rightWall);
 
   const ceiling = new Mesh(new PlaneGeometry(2 * HALF, 2 * HALF).rotateX(Math.PI / 2), toyMaterial(0xf7f3ea, 0.95));
   ceiling.name = 'Ceiling';
@@ -401,23 +444,27 @@ function buildToyRoom(): Group {
   rod.position.set(WINDOW_X, WINDOW_Y + WINDOW_H / 2 + 0.24, -HALF + 0.14);
   curtains.add(rod);
 
-  const pieces = new Mesh(furniture(), toyMaterial(0xffffff, 0.75, 0, { vertexColors: true }));
-  pieces.name = 'Furniture';
-  pieces.receiveShadow = true;
+  const pieces = furniture(toyMaterial(0xffffff, 0.75, 0, { vertexColors: true }));
 
-  const art = new Group();
-  art.name = 'Pictures';
-  const leftWall = pictureFrame(1, 0.6, 0.45);
-  leftWall.position.set(-HALF + 0.045, 1.55, -0.2);
-  leftWall.rotation.y = Math.PI / 2;
-  const backWall = pictureFrame(3, 0.5, 0.7);
-  backWall.position.set(2.1, 1.6, -HALF + 0.045);
-  const frontWall = pictureFrame(4, 0.9, 0.5);
-  frontWall.position.set(-0.6, 1.6, HALF - 0.045);
-  frontWall.rotation.y = Math.PI;
-  art.add(leftWall, backWall, frontWall);
+  // Pictures, the window and its curtains hang on their walls.
+  const leftPicture = pictureFrame(1, 0.6, 0.45);
+  leftPicture.position.set(-HALF + 0.045, 1.55, -0.2);
+  leftPicture.rotation.y = Math.PI / 2;
+  const backPicture = pictureFrame(3, 0.5, 0.7);
+  backPicture.position.set(2.1, 1.6, -HALF + 0.045);
+  const frontPicture = pictureFrame(4, 0.9, 0.5);
+  frontPicture.position.set(-0.6, 1.6, HALF - 0.045);
+  frontPicture.rotation.y = Math.PI;
+  leftWall.add(leftPicture);
+  backWall.add(backPicture, frameGeometry, sky, curtains);
+  frontWall.add(frontPicture);
+  // The ceiling and its light, out of the way of a camera above the room.
+  const ceilingSide = new Group();
+  ceilingSide.name = 'CeilingSide';
+  ceilingSide.add(ceiling, lampShade, lampRim);
+  cutaway(ceilingSide, [0, -1, 0], [0, WALL_H, 0]);
 
-  room.add(floorBase, floor, rug, shell, ceiling, lampShade, lampRim, frameGeometry, sky, curtains, pieces, art);
+  room.add(floorBase, floor, rug, walls, ceilingSide, pieces);
   room.traverse((object) => {
     object.castShadow = false;
   });
