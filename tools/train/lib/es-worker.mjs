@@ -10,7 +10,7 @@
  * thread only sends seeds and receives scores, so workers never wait on
  * each other within a batch.
  *
- * Messages in:  { type: 'init', root, packs: [path], policy: path, steps, flat }
+ * Messages in:  { type: 'init', root, packs: [path], policy: path, steps, flat, randomize }
  *               { type: 'run', id, mean: Float32Array, scale: Float32Array, sigma, jobs: [...], record }
  * Messages out: { type: 'ready', featureNorm } | { type: 'done', id, results } | { type: 'error', message }
  */
@@ -40,8 +40,8 @@ async function init(msg) {
   const mj = await mujoco();
   steps = msg.steps;
   const loaded = msg.packs.map((path) => loadPack(path, msg.root));
-  envs = loaded.map((l) => new PackEnv(mj, l));
-  flatEnvs = msg.flat ? loaded.slice(0, 1).map((l) => new PackEnv(mj, l, { flat: true })) : [];
+  envs = loaded.map((l) => new PackEnv(mj, l, { randomize: msg.randomize }));
+  flatEnvs = msg.flat ? loaded.slice(0, 1).map((l) => new PackEnv(mj, l, { flat: true, randomize: msg.randomize })) : [];
   policy = await featureSession(readFileSync(msg.policy));
   params = paramCount(policy.layer);
   // Size of the features at the packs' start states, for the noise scale.

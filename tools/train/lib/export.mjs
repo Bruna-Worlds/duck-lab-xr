@@ -5,9 +5,10 @@
  * Exports a scenario pack as plain files any MuJoCo tool can load, plus a
  * training job description for external trainers (the RL connector):
  *
- *   scene.xml      the pack's scene; meshdir assets/, height field terrain.bin
+ *   scene.xml      the pack's scene; meshdir assets/, height field assets/terrain.bin
  *   assets/        collision meshes
- *   terrain.bin    MuJoCo binary height field (int32 nrow, int32 ncol, float32 data)
+ *   assets/terrain.bin  MuJoCo binary height field (int32 nrow, int32 ncol, float32 data); in
+ *                  assets/ because MuJoCo looks for height field files in meshdir too
  *   state.json     control convention, start state, every recorded step, end state
  *   policies/      the ONNX policies the duck ran (61 obs in, 14 joint targets out)
  *   job.json       duckdash.trainjob.v1: what to train, how it is scored, where results go
@@ -25,9 +26,32 @@ export function exportPack(loaded, dir, policyDir, job = null) {
     const header = Buffer.alloc(8);
     header.writeInt32LE(pack.terrain.nrow, 0);
     header.writeInt32LE(pack.terrain.ncol, 4);
-    writeFileSync(join(dir, 'terrain.bin'), Buffer.concat([header, Buffer.from(terrain.buffer, terrain.byteOffset, terrain.byteLength)]));
+    writeFileSync(join(dir, 'assets', 'terrain.bin'), Buffer.concat([header, Buffer.from(terrain.buffer, terrain.byteOffset, terrain.byteLength)]));
     // MuJoCo's binary height field: int32 nrow, int32 ncol, float32 data (row-major, row 0 at -y).
     xml = xml.replace(/<hfield name="live-terrain"[^>]*?nrow="\d+" ncol="\d+"/, (m) => m.replace(/nrow="\d+" ncol="\d+"/, 'file="terrain.bin"'));
+    // MuJoCo (and Newton after it) rescales a height field read from a file to 0-1, (v - min) / (max - min),
+    // where the app sets the values themselves: the field's height range and the terrain geom's height
+    // take the difference, so every cell stands where it did on the headset.
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const v of terrain) {
+      if (v < lo) lo = v;
+      if (v > hi) hi = v;
+    }
+    let elevation = 0;
+    xml = xml.replace(/(<hfield name="live-terrain"[^>]*?size=")([^"]+)(")/, (m, a, size, b) => {
+      const s = size.trim().split(/\s+/).map(Number);
+      elevation = s[2];
+      if (hi > lo) s[2] = s[2] * (hi - lo);
+      return `${a}${s.join(' ')}${b}`;
+    });
+    if (lo !== 0 && Number.isFinite(lo)) {
+      xml = xml.replace(/(<geom name="terrain"[^>]*?pos=")([^"]+)(")/, (m, a, pos, b) => {
+        const p = pos.trim().split(/\s+/).map(Number);
+        p[2] += lo * elevation;
+        return `${a}${p.join(' ')}${b}`;
+      });
+    }
   }
   writeFileSync(join(dir, 'scene.xml'), xml);
   writeFileSync(
@@ -61,7 +85,7 @@ export function exportPack(loaded, dir, policyDir, job = null) {
       `Playground: ${pack.playground?.title ?? '-'}; room: ${pack.room?.colliders || 'none'}; ${pack.room?.terrain ?? ''}`,
       '',
       'scene.xml     MuJoCo scene: Pollen Microduck (robot_allcollisions), course pieces, scanned walls',
-      '              and furniture, and the live terrain height field (terrain.bin). meshdir is assets/.',
+      '              and furniture, and the live terrain height field (assets/terrain.bin). meshdir is assets/.',
       'state.json    control convention, the start state (qpos/qvel/last action/smoothed command),',
       '              every control step since (t, vx, wz, head x4, move), and the end state to check against.',
       'policies/     the ONNX policies the duck ran (61 obs in, 14 joint targets out, 50 Hz).',

@@ -3,7 +3,8 @@
   Duck Lab XR menu: the playground picker, the course editor's palette, the
   duck toggles (autopilot, camera panel, editor), Restart and, on the 2D
   page, Enter MR / Enter VR (at the top) and the duck's moves (a headset has
-  them on its controller buttons and the move bar), pairing with Duck Lab XR's trainer on
+  them on its controller buttons and the move bar), in mixed reality how much the live depth
+  sensor shapes the duck's terrain (ROOM DEPTH: src/room/depth-level.ts), pairing with Duck Lab XR's trainer on
   the player's computer (TRAINER ON YOUR COMPUTER: src/link/lab-link-system.ts)
   and the link to a real Microduck (REAL DUCK: src/robot/real-duck-system.ts). In a headset it opens beside the player
   with the left controller's menu button (or the scoreboard's Menu chip).
@@ -94,6 +95,19 @@
     <div id="edit-button" class="btn">EDIT</div>
     <div id="restart-button" class="btn">RESTART</div>
     <div id="controls-button" class="btn" style="display: none">CONTROLS</div>
+  </div>
+  <div id="driver-label" class="section">AUTOPILOT DRIVER</div>
+  <div id="driver-row" class="chips">
+    <div id="driver-planner" class="chip">Planner</div>
+    <div id="driver-brain" class="chip">Depth brain</div>
+    <div id="driver-camera" class="chip">Camera brain</div>
+  </div>
+  <div id="depth-label" class="section" style="display: none">ROOM DEPTH</div>
+  <div id="depth-row" class="chips" style="display: none">
+    <div id="depth-off" class="chip">Off</div>
+    <div id="depth-raw" class="chip">Raw</div>
+    <div id="depth-filtered" class="chip">Filtered</div>
+    <div id="depth-fine" class="chip">Fine</div>
   </div>
   <div class="section">TRAINER ON YOUR COMPUTER</div>
   <div id="lab-status" class="status">On your computer, open this website and click TRAINER at the top.</div>

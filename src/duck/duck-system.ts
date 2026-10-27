@@ -151,6 +151,8 @@ export class DuckSystem extends createSystem({
   commanded = false;
   /** Set by the nav system to drive the duck when the player is not (command units, -1..1). */
   autopilot: { forward: number; turn: number } | null = null;
+  /** The navigation brain is driving: the head (and the distance sensor in it) looks straight ahead, as it trained. */
+  headAhead = false;
   /** Where the autopilot is steering (radians off the heading, + left): the duck looks there. */
   autopilotLook: number | null = null;
   /** The twist last sent to the walking policy: forward m/s and turn rad/s (robot panel). */
@@ -702,7 +704,10 @@ export class DuckSystem extends createSystem({
     const ly = -Math.sin(yaw) * dx + Math.cos(yaw) * dy;
     let bearing = Math.atan2(ly, lx);
     let elevation = Math.atan2(dz, Math.max(Math.hypot(lx, ly), 0.05));
-    if (this.autopilot && !this.commanded && this.autopilotLook !== null) {
+    if (this.headAhead && !this.commanded) {
+      bearing = 0;
+      elevation = 0;
+    } else if (this.autopilot && !this.commanded && this.autopilotLook !== null) {
       // Driving itself: it looks where it is going, a little down at the floor ahead.
       bearing = clamp(this.autopilotLook, -0.9, 0.9);
       elevation = -0.15;
@@ -717,7 +722,8 @@ export class DuckSystem extends createSystem({
     this.head[1] = clamp(-0.35 * elevation, -0.4, 0.2); // head pitch, + looks down
     this.head[2] = clamp(bearing, -0.9, 0.9); // head yaw, + looks left
     this.head[3] = 0; // head roll, + tilts right
-    if (this.dizzy) {
+    if (this.dizzy && !(this.headAhead && !this.commanded)) {
+      // (Not while the depth brain drives: its sensor rides in the head.)
       this.head[2] = clamp(this.head[2] + 0.3 * Math.sin(now * 0.003), -0.9, 0.9);
       this.head[3] = 0.35 * Math.sin(now * 0.007);
     }

@@ -10,13 +10,22 @@
  *   node tools/train/replay.mjs artifacts/scenarios/<pack>.scenario.json
  *   node tools/train/replay.mjs <pack> --export artifacts/scenarios/<name>/
  *   node tools/train/replay.mjs <pack> --policies public/policies/incoming/latest/
+ *   node tools/train/replay.mjs <pack> --trace <file.json>
  *
  * The export folder gets scene.xml (robot, course, room, terrain as
- * terrain.bin), assets/ (collision meshes), state.json (start state, every
+ * assets/terrain.bin), assets/ (collision meshes), state.json (start state, every
  * input, end state) and the policy files it was captured with, which is what
  * a MuJoCo / MJX trainer or Isaac Sim's MJCF importer needs.
+ *
+ * --trace writes what another simulator's run can be checked against: every
+ * body's pose in the start state, the first observation and the walking
+ * policy's answer to it, the trunk's pose after every control step, the
+ * observation the policy saw at every step, and every body's pose after every
+ * step (bodyNames, poses: x y z qw qx qy qz per body), which Isaac Sim's test
+ * case replays as a ghost beside its own PhysX run
+ * (tools/isaac/scenario/run_pack.py reads it).
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import loadMujoco from '@mujoco/mujoco';
@@ -27,7 +36,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const args = process.argv.slice(2);
 const packPath = args.find((a) => !a.startsWith('--'));
 if (!packPath) {
-  console.error('usage: node tools/train/replay.mjs <pack.scenario.json> [--export <dir>] [--policies <folder>] [--quiet]');
+  console.error('usage: node tools/train/replay.mjs <pack.scenario.json> [--export <dir>] [--policies <folder>] [--trace <file.json>] [--quiet]');
   process.exit(2);
 }
 const option = (name) => {
@@ -37,6 +46,7 @@ const option = (name) => {
 const exportDir = option('--export');
 const policyFolder = option('--policies');
 const quiet = args.includes('--quiet');
+const tracePath = option('--trace');
 
 const pack = JSON.parse(readFileSync(packPath, 'utf8'));
 if (pack.version !== 'duckdash.scenario.v1') throw new Error(`not a scenario pack: ${pack.version}`);
@@ -103,6 +113,27 @@ const standSession = await ort.InferenceSession.create(join(folder, pack.policy.
 data.qpos.set(pack.start.qpos);
 data.qvel.set(pack.start.qvel);
 mj.mj_forward(model, data);
+// The start state's body poses, for --trace.
+const trace = tracePath ? { pack: packPath, bodies: {}, firstObs: null, firstAction: null, trunk: [], obs: [], bodyNames: [], poses: [] } : null;
+const traceIds = [];
+if (trace) {
+  for (const [, name] of pack.mjcf.matchAll(/<body name="([^"]+)"/g)) {
+    const b = mj.mj_name2id(model, mj.mjtObj.mjOBJ_BODY.value, name);
+    if (b < 0) continue;
+    trace.bodies[name] = { pos: Array.from(data.xpos.subarray(b * 3, b * 3 + 3)), quat: Array.from(data.xquat.subarray(b * 4, b * 4 + 4)) };
+    trace.bodyNames.push(name);
+    traceIds.push(b);
+  }
+}
+/** Every traced body's pose now, rounded (0.1 mm, 1e-4). */
+function tracePoses() {
+  const row = [];
+  for (const b of traceIds) {
+    for (let i = 0; i < 3; i++) row.push(Math.round(data.xpos[b * 3 + i] * 1e4) / 1e4);
+    for (let i = 0; i < 4; i++) row.push(Math.round(data.xquat[b * 4 + i] * 1e4) / 1e4);
+  }
+  return row;
+}
 const lastAction = new Float32Array(pack.start.lastAction);
 const twistSmooth = new Float32Array(pack.start.twistSmooth);
 const headSmooth = new Float32Array(pack.start.headSmooth);
@@ -136,6 +167,11 @@ async function act(sess, cmd) {
   buildObs(lastAction, cmd);
   const out = await sess.run({ [sess.inputNames[0]]: new ort.Tensor('float32', obs, [1, control.obsSize]) });
   const result = out[sess.outputNames[0]].data;
+  if (trace && !trace.firstObs) {
+    trace.firstObs = Array.from(obs);
+    trace.firstAction = Array.from(result.subarray(0, N));
+  }
+  if (trace) trace.obs.push(Array.from(obs, (v) => Number(v.toFixed(4))));
   for (let j = 0; j < N; j++) if (!Number.isFinite(result[j])) return;
   lastAction.set(result.subarray(0, N));
   const ctrl = data.ctrl;
@@ -184,6 +220,11 @@ for (let k = 0; k < steps.length; k++) {
     await act(session, command);
   }
   for (let s = 0; s < control.decimation; s++) mj.mj_step(model, data);
+  if (trace) {
+    const q = data.qpos;
+    trace.trunk.push([Number((t - steps[0][0]).toFixed(3)), ...Array.from(q.subarray(freeAdr, freeAdr + 7)), tipped ? 1 : 0]);
+    trace.poses.push(tracePoses());
+  }
   const second = Math.floor(t - steps[0][0]);
   if (!quiet && second !== lastPrint) {
     lastPrint = second;
@@ -202,3 +243,8 @@ console.log(
     (fellAt !== null ? `; first tipped at t=${(fellAt - steps[0][0]).toFixed(1)} s` : '; never tipped'),
 );
 console.log(JSON.stringify({ steps: steps.length, driftCm: Number((drift * 100).toFixed(1)), fellAt, reason: pack.reason }));
+if (trace) {
+  trace.fellAt = fellAt === null ? null : fellAt - steps[0][0];
+  writeFileSync(tracePath, JSON.stringify(trace));
+  console.log(`trace written to ${tracePath}`);
+}

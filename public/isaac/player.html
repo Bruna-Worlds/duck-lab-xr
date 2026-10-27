@@ -1,0 +1,250 @@
+<!doctype html>
+<!--
+  Copyright 2026 BRUNA GOODS LLC
+  SPDX-License-Identifier: Apache-2.0
+
+  Isaac Sim's viewport, live, over its WebRTC stream: the game page shows this
+  page in a frame (src/link/isaac-link.ts). The player itself is NVIDIA's,
+  loaded from the Isaac Sim being watched, not copied here. The Duck Lab XR
+  bridge's /ducklab/status says which one:
+  - Isaac Sim 2022.2 (Kit 104) serves its own, /streaming/webrtc-demo/js/kit-player.js.
+    It calls Kit's /streaming/ endpoints by relative path, so those calls are
+    sent to Isaac Sim; the bridge lets this page make them (CORS).
+  - Isaac Sim 4.x (Kit 105+) has none: the bridge serves NVIDIA's streaming
+    library (/ducklab/player/streaming.js), which tools/isaac/fetch-streaming-library.mjs
+    fetches onto that computer. It connects to Kit's signalling port (49100).
+  With the library, the game page can also talk to Isaac Sim over the stream's
+  data channel: it posts {duckLab: 'isaac-send', message} to this frame, and
+  messages from Isaac Sim come back as {duckLab: 'isaac-message', message}.
+
+  ?server=<address> (127.0.0.1 by default) &port=<Kit's web port> (8211)
+  &signal=<signalling port> (49100). From an https page, only Isaac Sim on
+  this computer (127.0.0.1) is reachable.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Isaac Sim stream</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #0f1020; overflow: hidden; }
+      #remote-video { position: absolute; inset: 0; width: 100% !important; height: 100% !important; object-fit: contain; background: #0f1020; outline: none; }
+      #note { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px; text-align: center; color: rgba(255, 244, 220, 0.8); font: 600 14px/1.45 'Segoe UI', system-ui, sans-serif; }
+      #note[hidden] { display: none; }
+      #note button, #play { margin-top: 10px; font: 600 14px/1 'Segoe UI', system-ui, sans-serif; color: #0f1020; background: #ffcf3f; border: 0; border-radius: 999px; padding: 9px 16px; cursor: pointer; }
+      /* The player's own "click to play" layer: it shows it when the browser wants a click first. */
+      #overlay { position: absolute; inset: 0; display: none; }
+      #overlay #play { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); margin: 0; }
+      .hidden-control { display: none; }
+    </style>
+  </head>
+  <body>
+    <video id="remote-video" width="1280" height="720" playsinline muted autoplay tabindex="-1"></video>
+    <audio id="remote-audio"></audio>
+    <div id="overlay"><button id="play" type="button">Show the stream</button></div>
+    <button id="stop" class="hidden-control" type="button">Stop</button>
+    <div id="note">Connecting to Isaac Sim...</div>
+    <script>
+      (function () {
+        var params = new URLSearchParams(location.search);
+        var server = params.get('server') || '127.0.0.1';
+        var port = params.get('port') || '8211';
+        var signal = Number(params.get('signal') || 49100);
+        var base = 'http://' + server + ':' + port;
+        var note = document.getElementById('note');
+        var video = document.getElementById('remote-video');
+
+        function post(message) {
+          try {
+            if (parent !== window) parent.postMessage(message, location.origin);
+          } catch (e) {
+            // not in a frame
+          }
+        }
+        function tell(state, detail) {
+          post({ duckLab: 'isaac-stream', state: state, detail: detail || '' });
+        }
+        function show(text, retry) {
+          note.hidden = false;
+          note.textContent = text;
+          if (retry) {
+            var button = document.createElement('button');
+            button.type = 'button';
+            button.textContent = 'Try again';
+            button.addEventListener('click', function () { location.reload(); });
+            note.appendChild(document.createElement('br'));
+            note.appendChild(button);
+          }
+        }
+
+        video.addEventListener('playing', function () {
+          note.hidden = true;
+          tell('playing', video.videoWidth + 'x' + video.videoHeight);
+        });
+        function unreachable() {
+          show('No Isaac Sim stream at ' + base + '. Start Isaac Sim with the Duck Lab XR bridge (tools/isaac/README.md).', true);
+          tell('error', 'player not reachable');
+        }
+
+        var nativeFetch = window.fetch.bind(window);
+        nativeFetch(base + '/ducklab/status')
+          .then(function (res) {
+            return res.ok ? res.json() : {};
+          })
+          .catch(function () {
+            return {};
+          })
+          .then(function (status) {
+            // The game page picks its data transport by this: the library's stream has a data channel.
+            post({ duckLab: 'isaac-player', kind: status.stream || null });
+            if (status.stream === 'library') libraryPlayer(status);
+            else kitPlayer();
+          });
+
+        // Isaac Sim 4.x: NVIDIA's streaming library, served by the bridge.
+        function libraryPlayer(status) {
+          if (!status.streamingLibrary) {
+            show("This Isaac Sim (Kit " + status.kit + ") needs NVIDIA's streaming library on its computer: run node tools/isaac/fetch-streaming-library.mjs there.", true);
+            tell('error', 'streaming library not fetched');
+            return;
+          }
+          var script = document.createElement('script');
+          script.src = base + '/ducklab/player/streaming.js';
+          script.onerror = unreachable;
+          script.onload = function () {
+            var library = window['app-streamer'];
+            if (!library || !library.AppStreamer) {
+              show('The streaming library did not load.', true);
+              tell('error', 'no AppStreamer');
+              return;
+            }
+            var streamer = library.AppStreamer;
+            tell('connecting');
+            // Messages for Isaac Sim from the game page go over the stream's data channel.
+            window.addEventListener('message', function (event) {
+              if (event.source !== parent || event.origin !== location.origin) return;
+              var data = event.data;
+              if (data && data.duckLab === 'isaac-send') streamer.sendMessage(JSON.stringify(data.message));
+            });
+            streamer
+              .connect({
+                streamSource: 'direct',
+                streamConfig: {
+                  videoElementId: 'remote-video',
+                  audioElementId: 'remote-audio',
+                  authenticate: false,
+                  maxReconnects: 20,
+                  server: server,
+                  signalingServer: server,
+                  signalingPort: signal,
+                  mediaServer: server,
+                  width: 1280,
+                  height: 720,
+                  fps: 30,
+                  nativeTouchEvents: true,
+                  onUpdate: function () {},
+                  onStart: function (event) {
+                    if (event && event.status === 'success') {
+                      post({ duckLab: 'isaac-channel', up: true });
+                    } else if (event && event.status === 'error') {
+                      post({ duckLab: 'isaac-channel', up: false });
+                      show('Isaac Sim refused the stream: ' + event.info, true);
+                      tell('error', String(event.info));
+                    }
+                  },
+                  onStop: function () {
+                    post({ duckLab: 'isaac-channel', up: false });
+                  },
+                  onTerminate: function () {
+                    post({ duckLab: 'isaac-channel', up: false });
+                  },
+                  onCustomEvent: function (message) {
+                    var parsed = message;
+                    if (typeof message === 'string') {
+                      try {
+                        parsed = JSON.parse(message);
+                      } catch (e) {
+                        // not JSON: pass it on as it is
+                      }
+                    }
+                    post({ duckLab: 'isaac-message', message: parsed });
+                  },
+                },
+              })
+              .catch(function (err) {
+                var info = err && err.info ? err.info : err;
+                var text = String(info && info.message ? info.message : info);
+                show('Isaac Sim refused the stream: ' + text + '.', true);
+                tell('error', text);
+              });
+          };
+          document.head.appendChild(script);
+        }
+
+        // Isaac Sim 2022.2: the player Kit serves itself.
+        function kitPlayer() {
+        // The player asks Kit for a stream and ICE servers by relative path: send those to Isaac Sim.
+        window.fetch = function (input, init) {
+          if (typeof input === 'string' && input.indexOf('/streaming/') === 0) return nativeFetch(base + input, init);
+          return nativeFetch(input, init);
+        };
+
+        // It also starts a worker from ./js/ragnarokworker.js; workers must come from this page's
+        // origin, so that one starts from a copy fetched from Isaac Sim.
+        var workerUrl = null;
+        var NativeWorker = window.Worker;
+        window.Worker = function (url, options) {
+          if (workerUrl && String(url).indexOf('ragnarokworker.js') >= 0) return new NativeWorker(workerUrl, options);
+          return new NativeWorker(url, options);
+        };
+        window.Worker.prototype = NativeWorker.prototype;
+
+        var script = document.createElement('script');
+        script.src = base + '/streaming/webrtc-demo/js/kit-player.js';
+        script.onerror = unreachable;
+        script.onload = function () {
+          if (typeof window.SetupWebRTCPlayer !== 'function') {
+            show('This Isaac Sim serves a different stream player.', false);
+            tell('error', 'no SetupWebRTCPlayer');
+            return;
+          }
+          tell('connecting');
+          window
+            .SetupWebRTCPlayer({
+              videoElementId: 'remote-video',
+              audioElementId: 'remote-audio',
+              playElement: document.getElementById('play'),
+              stopElement: document.getElementById('stop'),
+            })
+            .then(function () {
+              // Muted video may start on its own; otherwise the overlay's button starts it.
+              video.muted = true;
+              var started = video.play();
+              if (started && started.catch) {
+                started.catch(function () {
+                  note.hidden = true;
+                  document.getElementById('overlay').style.display = 'block';
+                  tell('click', 'the browser wants a click to show the stream');
+                });
+              }
+            })
+            .catch(function (err) {
+              show('Isaac Sim refused the stream: ' + (err && err.message ? err.message : err) + '. Is the Duck Lab XR bridge enabled?', true);
+              tell('error', String(err && err.message ? err.message : err));
+            });
+        };
+        nativeFetch(base + '/streaming/webrtc-demo/js/ragnarokworker.js')
+          .then(function (res) {
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            return res.text();
+          })
+          .then(function (code) {
+            workerUrl = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
+            document.head.appendChild(script);
+          })
+          .catch(unreachable);
+        }
+      })();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,460 @@
+{
+  "version": "iwsdk.scene.v1",
+  "units": "meters",
+  "environment": {
+    "toneMapping": "aces",
+    "exposure": 1,
+    "shadows": true,
+    "shadowMapType": "pcf"
+  },
+  "components": {
+    "com.iwsdk.components.DomeGradient": {
+      "sky": [
+        0.56,
+        0.68,
+        0.8,
+        1
+      ],
+      "equator": [
+        0.82,
+        0.83,
+        0.8,
+        1
+      ],
+      "ground": [
+        0.42,
+        0.4,
+        0.37,
+        1
+      ],
+      "intensity": 1
+    },
+    "com.iwsdk.components.IBLGradient": {
+      "sky": [
+        0.6902,
+        0.749,
+        0.7843,
+        1
+      ],
+      "equator": [
+        0.6584,
+        0.7084,
+        0.7913,
+        1
+      ],
+      "ground": [
+        0.807,
+        0.7758,
+        0.7454,
+        1
+      ],
+      "intensity": 0.75
+    },
+    "Playground": {
+      "id": "dog-bed",
+      "title": "Dog Bed",
+      "mode": "both",
+      "par": 40,
+      "author": "Duck Lab XR"
+    }
+  },
+  "resources": {},
+  "authoring": {
+    "views": [
+      {
+        "id": "hero",
+        "role": "hero",
+        "projection": "perspective",
+        "position": [
+          0.10000000000000009,
+          1.25,
+          0.5999999999999999
+        ],
+        "target": [
+          0.30000000000000004,
+          0.05,
+          -1.3
+        ],
+        "fov": 55
+      }
+    ]
+  },
+  "nodes": [
+    {
+      "id": "toy-room",
+      "name": "toy-room",
+      "content": {
+        "type": "asset",
+        "asset": "toy-room",
+        "castShadow": false,
+        "receiveShadow": true
+      },
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ]
+      },
+      "components": {
+        "VrOnly": {}
+      }
+    },
+    {
+      "id": "duck-stage",
+      "name": "Duck Stage",
+      "transform": {
+        "position": [
+          -1.2,
+          0,
+          -1.3
+        ]
+      },
+      "components": {
+        "DuckStage": {}
+      },
+      "children": [
+        {
+          "id": "start-pad-1",
+          "name": "start-pad-1",
+          "content": {
+            "type": "asset",
+            "asset": "course-start-pad",
+            "castShadow": false,
+            "receiveShadow": true
+          },
+          "transform": {
+            "position": [
+              0,
+              0,
+              0
+            ]
+          },
+          "components": {
+            "CoursePiece": {},
+            "RayInteractable": {}
+          }
+        },
+        {
+          "id": "crumb-2",
+          "name": "crumb-2",
+          "content": {
+            "type": "asset",
+            "asset": "course-crumb",
+            "castShadow": false,
+            "receiveShadow": true
+          },
+          "transform": {
+            "position": [
+              0.3,
+              0,
+              0
+            ]
+          },
+          "components": {
+            "CourseCrumb": {
+              "points": 100
+            },
+            "CoursePiece": {},
+            "RayInteractable": {}
+          }
+        },
+        {
+          "id": "play-mat-3",
+          "name": "play-mat-3",
+          "content": {
+            "type": "asset",
+            "asset": "course-play-mat",
+            "castShadow": false,
+            "receiveShadow": true
+          },
+          "transform": {
+            "position": [
+              0.75,
+              0,
+              0
+            ]
+          },
+          "components": {
+            "CoursePiece": {},
+            "RayInteractable": {}
+          }
+        },
+        {
+          "id": "crumb-4",
+          "name": "crumb-4",
+          "content": {
+            "type": "asset",
+            "asset": "course-crumb",
+            "castShadow": false,
+            "receiveShadow": true
+          },
+          "transform": {
+            "position": [
+              0.75,
+              0.02,
+              0
+            ]
+          },
+          "components": {
+            "CourseCrumb": {
+              "points": 100
+            },
+            "CoursePiece": {},
+            "RayInteractable": {}
+          }
+        },
+        {
+          "id": "crumb-5",
+          "name": "crumb-5",
+          "content": {
+            "type": "asset",
+            "asset": "course-crumb",
+            "castShadow": false,
+            "receiveShadow": true
+          },
+          "transform": {
+            "position": [
+              1.2,
+              0,
+              0
+            ]
+          },
+          "components": {
+            "CourseCrumb": {
+              "points": 100
+            },
+            "CoursePiece": {},
+            "RayInteractable": {}
+          }
+        },
+        {
+          "id": "dog-bed-6",
+          "name": "dog-bed-6",
+          "content": {
+            "type": "asset",
+            "asset": "course-dog-bed",
+            "castShadow": false,
+            "receiveShadow": true
+          },
+          "transform": {
+            "position": [
+              1.72,
+              0,
+              0
+            ]
+          },
+          "components": {
+            "CoursePiece": {},
+            "RayInteractable": {}
+          }
+        },
+        {
+          "id": "finish-pad-7",
+          "name": "finish-pad-7",
+          "content": {
+            "type": "asset",
+            "asset": "course-finish-pad",
+            "castShadow": false,
+            "receiveShadow": true
+          },
+          "transform": {
+            "position": [
+              1.78,
+              0.03,
+              0
+            ]
+          },
+          "components": {
+            "CourseFinish": {
+              "radius": 0.14,
+              "par": 40
+            },
+            "CoursePiece": {},
+            "RayInteractable": {}
+          }
+        },
+        {
+          "id": "key-light",
+          "name": "Key Light",
+          "transform": {
+            "position": [
+              -0.15,
+              3.1,
+              1.35
+            ],
+            "rotationDeg": [
+              -66.47,
+              -22.49,
+              -41.3
+            ]
+          },
+          "components": {
+            "com.iwsdk.components.DirectionalLight": {
+              "color": [
+                1,
+                0.95,
+                0.88,
+                1
+              ],
+              "intensity": 2.2,
+              "castShadow": true,
+              "shadowMapSize": "1024",
+              "shadowBias": -0.0004,
+              "shadowNormalBias": 0.01,
+              "shadowRadius": 3,
+              "shadowCameraNear": 0.5,
+              "shadowCameraFar": 8,
+              "shadowCameraSize": 3.6
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "run-panel",
+      "name": "Scoreboard",
+      "content": {
+        "type": "asset",
+        "asset": "run-panel"
+      },
+      "transform": {
+        "position": [
+          0,
+          1,
+          -2.1
+        ],
+        "rotationDeg": [
+          -15,
+          0,
+          0
+        ],
+        "scale": 0.2
+      },
+      "components": {
+        "RayInteractable": {},
+        "ScreenSpace": {
+          "top": "20px",
+          "right": "20px",
+          "width": "27vw",
+          "height": "32%"
+        }
+      }
+    },
+    {
+      "id": "menu-panel",
+      "name": "Menu Panel",
+      "content": {
+        "type": "asset",
+        "asset": "menu-panel"
+      },
+      "transform": {
+        "position": [
+          0,
+          1.25,
+          -0.75
+        ],
+        "rotationDeg": [
+          -10,
+          0,
+          0
+        ],
+        "scale": 0.12
+      },
+      "components": {
+        "RayInteractable": {},
+        "ScreenSpace": {
+          "top": "20px",
+          "left": "20px",
+          "width": "22vw",
+          "height": "40%"
+        }
+      }
+    },
+    {
+      "id": "moves-panel",
+      "name": "Moves Panel",
+      "content": {
+        "type": "asset",
+        "asset": "moves-panel"
+      },
+      "transform": {
+        "position": [
+          0,
+          0.614,
+          -1.996
+        ],
+        "rotationDeg": [
+          -15,
+          0,
+          0
+        ],
+        "scale": 0.2
+      },
+      "components": {
+        "RayInteractable": {},
+        "ScreenSpace": {
+          "bottom": "20px",
+          "left": "calc(50vw - 16vw)",
+          "width": "32vw",
+          "height": "14%"
+        }
+      }
+    },
+    {
+      "id": "robot-panel",
+      "name": "Robot Panel",
+      "content": {
+        "type": "asset",
+        "asset": "robot-panel"
+      },
+      "transform": {
+        "position": [
+          0,
+          0.65,
+          -1
+        ],
+        "scale": 0.1
+      },
+      "components": {
+        "RayInteractable": {},
+        "ScreenSpace": {
+          "bottom": "20px",
+          "right": "20px",
+          "width": "19vw",
+          "height": "44%"
+        }
+      }
+    },
+    {
+      "id": "lab-panel",
+      "name": "Lab Panel",
+      "content": {
+        "type": "asset",
+        "asset": "lab-panel"
+      },
+      "transform": {
+        "position": [
+          -1.75,
+          1.3,
+          -0.7
+        ],
+        "rotationDeg": [
+          0,
+          68,
+          0
+        ],
+        "scale": 0.18
+      },
+      "components": {
+        "RayInteractable": {},
+        "ScreenSpace": {
+          "bottom": "20px",
+          "left": "20px",
+          "width": "24vw",
+          "height": "56%"
+        }
+      }
+    }
+  ]
+}

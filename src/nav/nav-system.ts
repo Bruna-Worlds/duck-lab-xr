@@ -10,13 +10,21 @@
  *
  * Keys: P runs the course, C comes to the player, any stick input or Escape
  * hands control back. The HUD's Auto button toggles the course run.
+ *
+ * Driver: the planner above, the depth brain or the camera brain (B cycles
+ * them, or the menu's DRIVER chips; kept for next time): the autopilot still
+ * picks the targets and judges progress, but a navigation policy in the sim
+ * steers to each one, the head looking straight ahead as the brains trained.
+ * The depth brain reads the head's 8 x 8 distance sensor (src/duck/nav-brain.ts);
+ * the camera brain reads it and the head camera's picture as well.
  */
 import { createSystem, type Entity, Matrix4, Quaternion, Vector3 } from '@iwsdk/core';
 import { CourseCrumb, CourseFinish, CourseGate, CourseGoal } from '../course/course-components.js';
 import { gatherCourse } from '../course/course-physics.js';
 import { DuckStage } from '../duck/duck-stage.js';
 import { DuckSystem } from '../duck/duck-system.js';
-import { TERRAIN_CELL, TERRAIN_MIN_HEIGHT, TERRAIN_N, terrainX, terrainY } from '../duck/terrain-spec.js';
+import { NAV_BRAIN_URL, NAV_CAMERA_URL } from '../duck/sim-client.js';
+import { TERRAIN_MIN_HEIGHT, TERRAIN_N, terrainCell, terrainX, terrainY } from '../duck/terrain-spec.js';
 import { RoomSystem } from '../room/room-system.js';
 import { TerrainSystem } from '../room/terrain-system.js';
 
@@ -69,6 +77,21 @@ const LOOK = 0.45; // how far the whiskers reach
 
 export type NavTask = 'course' | 'player' | 'explore' | 'goto' | null;
 
+const BRAIN_KEY = 'ducklab.nav.brain';
+const BRAIN_REACH = 0.2; // the brains trained to count a goal reached inside 20 cm
+/** Who steers the autopilot. */
+export type NavDriver = 'planner' | 'depth' | 'camera';
+const DRIVERS: readonly NavDriver[] = ['planner', 'depth', 'camera'];
+const BRAIN_NAMES: Record<NavDriver, string> = { planner: 'Planner', depth: 'Depth brain', camera: 'Camera brain' };
+const readDriver = (): NavDriver => {
+  try {
+    const kept = localStorage.getItem(BRAIN_KEY);
+    return kept === 'camera' ? 'camera' : kept === '1' ? 'depth' : 'planner';
+  } catch {
+    return 'planner';
+  }
+};
+
 interface Waypoint {
   x: number;
   y: number;
@@ -108,6 +131,8 @@ export class NavSystem extends createSystem({
   finishes: { required: [CourseFinish] },
 }) {
   task: NavTask = null;
+  /** Who steers: the path planner, or a navigation brain in the sim. */
+  driver: NavDriver = readDriver();
   /** For the HUD: what the autopilot is doing. */
   status = '';
   /** What the status says while the current task is going well. */
@@ -273,7 +298,38 @@ export class NavSystem extends createSystem({
     this.statusUntil = now + STATUS_MS;
   }
 
+  /** True while a navigation brain (depth or camera) steers. */
+  get brain(): boolean {
+    return this.driver !== 'planner';
+  }
+
+  /** Chooses the depth brain (true) or the planner (false). */
+  setBrain(on: boolean): void {
+    this.setDriver(on ? 'depth' : 'planner');
+  }
+
+  /** Chooses the driver (kept for next time); a running task carries on with the new one. */
+  setDriver(driver: NavDriver): void {
+    if (driver === this.driver) return;
+    this.driver = driver;
+    try {
+      if (driver === 'planner') localStorage.removeItem(BRAIN_KEY);
+      else localStorage.setItem(BRAIN_KEY, driver === 'camera' ? 'camera' : '1');
+    } catch {
+      // storage blocked: this visit only
+    }
+    if (driver === 'planner') this.releaseBrain();
+    this.path = [];
+    this.bestDistance = Infinity;
+  }
+
+  private releaseBrain(): void {
+    this.duck?.sim?.drive(null);
+    if (this.duck) this.duck.headAhead = false;
+  }
+
   stop(): void {
+    this.releaseBrain();
     if (this.task) this.status = '';
     this.statusUntil = 0;
     if (this.duck) this.duck.autopilotLook = null;
@@ -299,6 +355,7 @@ export class NavSystem extends createSystem({
     if (keys.getKeyDown('KeyE')) this.task === 'explore' ? this.stop() : this.explore();
     if (keys.getKeyDown('KeyG') && !this.goUnderTable()) this.status = 'Autopilot: no table in the scan';
     if (keys.getKeyDown('Escape')) this.stop();
+    if (keys.getKeyDown('KeyB')) this.setDriver(DRIVERS[(DRIVERS.indexOf(this.driver) + 1) % DRIVERS.length]);
     if (!this.task && this.statusUntil && performance.now() > this.statusUntil) {
       this.status = '';
       this.statusUntil = 0;
@@ -354,7 +411,7 @@ export class NavSystem extends createSystem({
         const w = this.waypoints[0];
         const reached = w.through
           ? x > w.x + 0.03 && Math.abs(w.y - y) < 0.3 // past the posts, between them (not around)
-          : Math.hypot(w.x - x, w.y - y) < w.reach || (!!w.approach && x > w.x && Math.abs(w.y - y) < APPROACH_REACH);
+          : Math.hypot(w.x - x, w.y - y) < (this.brain ? Math.max(w.reach, BRAIN_REACH) : w.reach) || (!!w.approach && x > w.x && Math.abs(w.y - y) < APPROACH_REACH);
         if (!reached) break;
         this.waypoints.shift();
         this.path = [];
@@ -371,6 +428,10 @@ export class NavSystem extends createSystem({
       this.target[1] = w.y;
     }
     const distance = Math.hypot(this.target[0] - x, this.target[1] - y);
+    if (this.brain) {
+      this.driveWithBrain(duck, x, y, distance, this.headingOf(p), now);
+      return;
+    }
     // How far is left to walk: along the last plan when there is one (a detour
     // round an obstacle first leads away from the target), else as the crow flies.
     const remaining = this.planFound && this.path.length > 1 ? this.pathLength : distance;
@@ -483,6 +544,47 @@ export class NavSystem extends createSystem({
     }
     duck.autopilot = { forward, turn };
     duck.autopilotLook = error;
+  }
+
+  /** Brain driver: the current target goes to the navigation brain in the sim, which steers. */
+  private driveWithBrain(duck: DuckSystem, x: number, y: number, distance: number, yaw: number, now: number): void {
+    const sim = duck.sim;
+    if (!sim) return;
+    duck.autopilotLook = null;
+    duck.headAhead = true;
+    duck.autopilot = { forward: 0, turn: 0 }; // the brain sets the speed and turn in the sim
+    if (this.task === 'course' && this.waypoints[0]?.optional) {
+      // A crumb left behind stays behind, as with the planner.
+      let off = Math.atan2(this.target[1] - y, this.target[0] - x) - yaw;
+      off = Math.abs(Math.atan2(Math.sin(off), Math.cos(off)));
+      if (off > CRUMB_BEHIND || (distance < CRUMB_CLOSE && off > CRUMB_MISSED)) {
+        this.skipWaypoint();
+        return;
+      }
+    }
+    if (this.task === 'player' && distance < 0.45) {
+      sim.drive(null);
+      this.status = 'Autopilot: here!';
+      return;
+    }
+    sim.drive(this.target, this.driver === 'camera' ? NAV_CAMERA_URL : NAV_BRAIN_URL);
+    if (sim.navState === 'error') {
+      this.status = `${BRAIN_NAMES[this.driver]}: could not load it`;
+    } else if (distance < this.bestDistance - PROGRESS || this.bestDistance === Infinity || sim.mode !== 'walk') {
+      this.bestDistance = Math.min(this.bestDistance, distance);
+      this.progressAt = now;
+      if (this.stuck) {
+        this.stuck = false;
+        this.status = this.taskStatus;
+      }
+    } else if (!this.stuck && now - this.progressAt > (this.waypoints[0]?.optional ? CRUMB_STUCK_MS : STUCK_MS)) {
+      if (this.task === 'course' && this.waypoints[0]?.optional) {
+        this.skipWaypoint();
+      } else {
+        this.stuck = true;
+        this.status = `${BRAIN_NAMES[this.driver]}: stuck`;
+      }
+    }
   }
 
   /**
@@ -761,6 +863,7 @@ export class NavSystem extends createSystem({
       const bottom = pz - (collider.type === 'box' ? collider.size[2] : collider.type === 'cylinder' ? collider.size[1] : collider.size[0]);
       if (bottom > 0.22) continue; // the duck walks under it
       if (top < 0.02) continue; // flat on the floor
+      if (collider.walkable) continue; // a step to climb onto (a mat, a dog bed)
       const [qw, qx, qy, qz] = collider.quat;
       const yaw = Math.atan2(2 * (qw * qz + qx * qy), 1 - 2 * (qy * qy + qz * qz));
       if (collider.type === 'box') mark(px, py, collider.size[0], collider.size[1], yaw);
@@ -785,7 +888,7 @@ export class NavSystem extends createSystem({
       for (let i = 0; i < heights.length; i++) {
         const h = heights[i];
         if (h < Math.max(CLIMBABLE, TERRAIN_MIN_HEIGHT)) continue;
-        mark(terrainX(i % TERRAIN_N), terrainY(Math.floor(i / TERRAIN_N)), TERRAIN_CELL / 2, TERRAIN_CELL / 2, 0, true);
+        mark(terrainX(i % TERRAIN_N), terrainY(Math.floor(i / TERRAIN_N)), terrainCell() / 2, terrainCell() / 2, 0, true);
       }
     }
     this.grid = grid;

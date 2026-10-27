@@ -103,6 +103,7 @@ export function buildDuckRig(kin: DuckKinematics, gltf: GLTF, pack: DuckPack): D
   for (const body of kin.bodies) {
     const group = new Group();
     group.name = body.name;
+    group.userData.mujocoBody = true; // a MuJoCo body, not something attached later (src/link/isaac-link.ts)
     group.position.fromArray(body.pos);
     group.quaternion.set(body.quat[1], body.quat[2], body.quat[3], body.quat[0]);
     bodies.set(body.name, group);

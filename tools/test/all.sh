@@ -46,8 +46,14 @@ echo "== thin layers don't flicker through each other (2D page, in its own brows
 node tools/test/zfight-check.mjs 2>&1 | tally zfight
 echo "== room mesh fills the terrain map (desktop)"
 npx @iwsdk/cli browser run tools/test/mesh-heights-check.mjs --timeout 100000 2>&1 | tally mesh-heights
+echo "== depth noise and smeared edges kept off the terrain (desktop, synthetic depth)"
+npx @iwsdk/cli browser run tools/test/depth-quality-check.mjs --timeout 100000 2>&1 | tally depth-quality
 echo "== terrain and room colliders (emulated mixed reality)"
 bash tools/test/mr.sh tools/test/terrain-check.mjs 14 2>&1 | tally terrain
+echo "== depth levels: soft depth layer, hard scan layer, 3 cm cells (emulated mixed reality)"
+bash tools/test/mr.sh tools/test/depth-level-check.mjs 14 2>&1 | tally depth-level
+echo "== ROOM DEPTH chips in the headset menu (emulated mixed reality)"
+bash tools/test/depth-level-xr.sh 2>&1 | tally depth-level-xr
 echo "== scene understanding: scan, placement, duck camera (emulated mixed reality)"
 bash tools/test/mr.sh tools/test/scene-check.mjs 14 2>&1 | tally scene
 echo "== scenario pack (emulated mixed reality)"
@@ -93,6 +99,13 @@ echo "== Desktop PLAY | TRAINER switch"
 node tools/test/views-check.mjs 2>&1 | tally views
 echo "== Desktop 2D page: How to play card, folding menu"
 node tools/test/desktop-ui-check.mjs 2>&1 | tally desktop-ui
+echo "== Depth brain and camera brain drive the course (2D page)"
+node tools/test/depth-brain-check.mjs 2>&1 | tally depth-brain
+node tools/test/camera-brain-check.mjs 2>&1 | tally camera-brain
+echo "== Dog Bed: the steps are solid and open to the planner (2D page)"
+RUN_MS=20000 node tools/test/dog-bed-check.mjs 2>&1 | tally dog-bed
+echo "== Isaac Sim link, against a stand-in bridge (desktop)"
+npx @iwsdk/cli browser run tools/test/isaac-link-check.mjs --timeout 100000 2>&1 | tally isaac-link
 echo "== Trainer: export for any simulator"
 node tools/test/export-check.mjs 2>&1 | tally export
 [ -n "$lab_pid" ] && kill "$lab_pid"

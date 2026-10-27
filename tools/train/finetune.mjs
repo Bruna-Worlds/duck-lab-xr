@@ -10,7 +10,7 @@
  * noise for robustness. CPU only, minutes, no Python.
  *
  *   node tools/train/finetune.mjs <pack> [<pack> ...] [--iterations 30] [--pairs 24]
- *        [--steps 400] [--workers 11] [--name room-tuned] [--publish] [--dry]
+ *        [--steps 400] [--workers 11] [--name room-tuned] [--randomize pollen|basic] [--publish] [--dry]
  *
  * It evaluates before and after on held-out seeds (fall rate, distance,
  * command tracking) plus plain floor (to catch regressions), and writes a
@@ -46,6 +46,8 @@ export const DEFAULTS = {
   actionNoise: 0.03,
   biasNoise: 0.01,
   seed: 1,
+  /** Domain randomisation: pollen (Pollen's and NVIDIA's MicroDuck recipe, lib/env.mjs) or basic (shoves only). */
+  randomize: 'pollen',
   // Each worker loads its own MuJoCo and ONNX Runtime (a few hundred MB):
   // DUCKLAB_WORKERS caps them on a machine short of memory.
   workers: Math.max(1, Math.min(Number(process.env.DUCKLAB_WORKERS) || 11, cpus().length - 1)),
@@ -145,7 +147,8 @@ export async function finetune(options, onEvent = () => {}) {
   const params = paramCount(layer);
   const started = Date.now();
   onEvent({ type: 'status', message: `starting ${o.workers} workers on ${packs.length} pack(s)` });
-  const pool = new Pool(o.workers, { root, packs, policy: policyPath, steps: o.steps, flat: true });
+  if (!['pollen', 'basic'].includes(o.randomize)) throw new Error(`randomize: pollen or basic, not ${o.randomize}`);
+  const pool = new Pool(o.workers, { root, packs, policy: policyPath, steps: o.steps, flat: true, randomize: o.randomize });
   let stopped = false;
   const stop = () => {
     stopped = true;
@@ -252,6 +255,7 @@ export async function finetune(options, onEvent = () => {}) {
       iterations: o.iterations,
       pairs: o.pairs,
       steps: o.steps,
+      randomize: o.randomize,
       bestIteration: best.iteration,
       baseline,
       trained: best.metrics,
@@ -291,7 +295,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
     else options[a.slice(2)] = /^-?[\d.]+$/.test(args[i + 1]) ? Number(args[++i]) : args[++i];
   }
   if (!packs.length) {
-    console.error('usage: node tools/train/finetune.mjs <pack.scenario.json> [...] [--iterations N] [--pairs N] [--steps N] [--workers N] [--name NAME] [--publish] [--dry]');
+    console.error('usage: node tools/train/finetune.mjs <pack.scenario.json> [...] [--iterations N] [--pairs N] [--steps N] [--workers N] [--name NAME] [--randomize pollen|basic] [--publish] [--dry]');
     process.exit(2);
   }
   const pct = (v) => `${(v * 100).toFixed(0)}%`;

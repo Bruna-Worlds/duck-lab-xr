@@ -67,6 +67,8 @@ const SIZE_KEY = 'duckdash.robotPanel.size';
 const SCALE_KEY = 'duckdash.robotPanel.scale';
 /** The motion view's line beside the tabs (the vision view shows what it labelled). */
 const MOTION_NOTE = 'The room as its physics knows it';
+/** The depth view's line: what the head's distance sensor is, or what the brain steering by it does. */
+const DEPTH_NOTE = 'Head distance sensor: 8 x 8 zones, 4 m';
 /** Headset panel size limits, relative to the authored size (about 30 cm wide). */
 const MIN_SCALE = 0.6;
 const MAX_SCALE = 2.5;
@@ -490,6 +492,7 @@ export class RobotPanelSystem extends createSystem({}) {
       'rp-tabs',
       'rp-view-motion',
       'rp-view-vision',
+      'rp-view-depth',
       'rp-view-note',
       'rp-status',
       'rp-drive',
@@ -534,6 +537,7 @@ export class RobotPanelSystem extends createSystem({}) {
     listen('rp-revert', () => void this.inbox?.revert());
     listen('rp-view-motion', () => this.cam?.setView('motion'));
     listen('rp-view-vision', () => this.cam?.setView('vision'));
+    listen('rp-view-depth', () => this.cam?.setView('depth'));
     listen('rp-pin', () => {
       if (this.pinned) this.follow();
       else this.pinned = true;
@@ -791,10 +795,11 @@ export class RobotPanelSystem extends createSystem({}) {
     this.text('rp-mode', style.text);
     this.background('rp-mode', style.color);
     // The feed's view tabs, and what the view shows.
-    const vision = this.cam?.view === 'vision';
-    this.tab('rp-view-motion', !vision);
-    this.tab('rp-view-vision', vision);
-    this.text('rp-view-note', vision ? (this.cam?.vision.summary ?? '') : MOTION_NOTE);
+    const view = this.cam?.view ?? 'motion';
+    this.tab('rp-view-motion', view === 'motion');
+    this.tab('rp-view-vision', view === 'vision');
+    this.tab('rp-view-depth', view === 'depth');
+    this.text('rp-view-note', view === 'vision' ? (this.cam?.vision.summary ?? '') : view === 'depth' ? this.depthNote() : MOTION_NOTE);
     this.background('rp-pin', this.pinned ? '#ffcf3f' : 'rgba(255, 244, 220, 0.08)');
     const nav = this.nav;
     const vx = duck.commandVx;
@@ -814,11 +819,17 @@ export class RobotPanelSystem extends createSystem({}) {
     this.display('rp-offer', !!offer);
     if (offer) {
       const pct = (v: number | null) => (v === null ? '?' : `${Math.round(v * 100)}%`);
+      // A fine-tune measures its own falls; another trainer's release has the cross-check's (randomised MuJoCo).
+      let before = offer.baselineFallRate;
+      let after = offer.fallRate;
+      if (after === null && offer.crossCheck) {
+        const row = (brain: string) => offer.crossCheck?.find((r) => r.engine === 'pollen' && r.brain === brain) ?? null;
+        before = row('shipped')?.falls ?? null;
+        after = row(offer.id)?.falls ?? null;
+      }
       this.text(
         'rp-offer-note',
-        inbox?.busy
-          ? inbox.status
-          : `${offer.name}: falls ${pct(offer.baselineFallRate)} to ${pct(offer.fallRate)} on ${offer.packs} of your scenes`,
+        inbox?.busy ? inbox.status : `${offer.name}: falls ${pct(before)} to ${pct(after)} on ${offer.packs} of your scenes`,
       );
     }
     const current = inbox?.current ?? null;
@@ -881,6 +892,18 @@ export class RobotPanelSystem extends createSystem({}) {
       this.written.set(key, value);
       element.setProperties({ backgroundColor: value });
     }
+  }
+
+  /** The depth view's line: the nearest thing in sight, and the brain's command while it drives. */
+  private depthNote(): string {
+    const tof = this.duck?.sim?.tof;
+    if (!tof) return DEPTH_NOTE;
+    let nearest = Infinity;
+    for (const d of tof.zones) nearest = Math.min(nearest, d);
+    const near = nearest < 3.99 ? `nearest ${nearest.toFixed(2)} m` : 'nothing within 4 m';
+    if (!tof.driving) return `${DEPTH_NOTE}: ${near}`;
+    const turn = Math.abs(tof.turn) < 0.15 ? 'straight' : tof.turn > 0 ? 'turning left' : 'turning right';
+    return `Brain: ${tof.forward.toFixed(2)} m/s, ${turn}; ${near}`;
   }
 
   /** A view tab: filled when on. */

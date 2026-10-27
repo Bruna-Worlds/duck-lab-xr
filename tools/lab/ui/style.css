@@ -354,6 +354,107 @@ h2 {
   background: var(--berry);
 }
 
+.sw-isaac {
+  background: var(--sky);
+}
+
+.btn-sky {
+  border-color: var(--sky);
+}
+
+.isaac-row {
+  margin-top: 14px;
+  align-items: center;
+}
+
+.isaac-row .check {
+  margin-top: 0;
+}
+
+.isaac-stream {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  margin-top: 10px;
+  border: 2px solid rgba(255, 244, 220, 0.2);
+  border-radius: 12px;
+  background: #000;
+}
+
+.isaac-stream[hidden] {
+  display: none;
+}
+
+/* Classes that set display (.form, .check) would otherwise show hidden elements. */
+[hidden] {
+  display: none !important;
+}
+
+.form .span2 {
+  grid-column: span 2;
+}
+
+.hint.warn {
+  color: var(--yellow);
+}
+
+.checks-title {
+  margin-top: 10px;
+  font-family: var(--display);
+  font-size: 13px;
+  letter-spacing: 1px;
+  color: var(--dim);
+}
+
+.checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+
+.checks .check {
+  margin-top: 4px;
+}
+
+.cc-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+/* Five engines do not fit the card's width on one line: cells wrap, and anything wider scrolls inside the card. */
+#cc-table {
+  overflow-x: auto;
+}
+
+.cc-table th,
+.cc-table td {
+  padding: 4px 6px;
+  border-bottom: 1px solid rgba(255, 244, 220, 0.12);
+  text-align: left;
+  vertical-align: top;
+}
+
+.cc-table td:first-child {
+  white-space: nowrap;
+}
+
+.cc-table th {
+  font-family: var(--display);
+  letter-spacing: 1px;
+  color: var(--dim);
+  font-weight: 400;
+}
+
+.cc-table td.fell {
+  color: var(--berry);
+}
+
+.cc-table td.up {
+  color: var(--mint);
+}
+
 .row {
   display: flex;
   gap: 8px;
@@ -504,6 +605,10 @@ h2 {
 
 .release .nums b {
   color: var(--mint);
+}
+
+.release .nums b.worse {
+  color: var(--berry);
 }
 
 .empty {

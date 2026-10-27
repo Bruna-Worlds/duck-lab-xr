@@ -21,8 +21,10 @@ export default async function run({ page, frame }) {
       const d = globalThis.__duck;
       if (!d) return null;
       const terrain = d.terrain;
-      // The best landing spot: a plateau (5x5 cells, 20 cm) between 10 and 50 cm high, from depth or scan.
+      // The best landing spot: a plateau (5x5 cells) between 10 and 50 cm high, from depth or scan.
       const N = 201;
+      const C = terrain.cell; // metres per cell and from the centre to the edge, as in use
+      const H = terrain.half;
       const heights = terrain.heights;
       const scan = terrain.scanHeights;
       const at = (i) => Math.max(heights[i], scan[i]);
@@ -44,10 +46,10 @@ export default async function run({ page, frame }) {
       }
       // The first scanned ridge along +x from the start line (row of y = 0): a wall to walk into.
       let wallX = null;
-      for (let col = Math.round((0.3 + 4) / 0.04); col < N; col++) {
-        const i = Math.round(4 / 0.04) * N + col;
+      for (let col = Math.round((0.3 + H) / C); col < N; col++) {
+        const i = Math.round(H / C) * N + col;
         if (scan[i] >= 0.3) {
-          wallX = 1.2 - 4 + col * 0.04;
+          wallX = 1.2 - H + col * C;
           break;
         }
       }
@@ -90,6 +92,9 @@ export default async function run({ page, frame }) {
         raised: terrain.raised,
         tallest,
         tallestIndex,
+        cell: C,
+        half: H,
+        level: terrain.level,
         ngeom: sim && sim.ready ? sim.ready.ngeom : -1,
         duckHeight: d.duck.hasPose ? d.duck.pose[2] : null,
         mode: sim ? sim.mode : null,
@@ -111,7 +116,7 @@ export default async function run({ page, frame }) {
   check('mixed reality session', s.session === 'alpha-blend' || s.session === 'additive', `blend ${s.session}, depth ${s.depthUsage}`);
   check('GPU depth, as on the Quest', s.depthUsage === 'gpu-optimized', `depth usage ${s.depthUsage}`);
   check('room colliders in the terrain', s.roomColliders > 0 && s.scanCells > 0, `${s.roomColliders} colliders (${s.roomSummary}) -> ${s.scanCells} cells, ngeom ${s.ngeom}`);
-  check('terrain from depth', s.active && s.depthRaised > 0, `${s.depthRaised} cells raised by the depth sensor; ${s.terrain}`);
+  check('terrain from depth', s.active && s.depthRaised > 0, `${s.depthRaised} cells raised by the depth sensor at level ${s.level} (${Math.round(s.cell * 100)} cm cells); ${s.terrain}`);
   check(
     'depth agrees with the scan',
     s.depthTall > 0 && s.agreeing / s.depthTall > 0.6,
@@ -162,7 +167,7 @@ export default async function run({ page, frame }) {
     for (let i = 0; i < N * N; i++) if (Math.max(t.heights[i], t.scanHeights[i]) >= 0.025) raised++;
     let covered = 0;
     const m = blocks ? blocks.instanceMatrix.array : [];
-    for (let k = 0; k < (blocks ? blocks.count : 0); k++) covered += Math.round(m[k * 16] / 0.04 + 0.1);
+    for (let k = 0; k < (blocks ? blocks.count : 0); k++) covered += Math.round(m[k * 16] / t.cell + 0.1);
     t.frozen = false;
     return { raised, covered, count: blocks ? blocks.count : 0 };
   });
@@ -177,8 +182,8 @@ export default async function run({ page, frame }) {
   let standH = s.tallest;
   if (s.tallest > 0.1) {
     const N = 201;
-    standX = 1.2 - 4 + (s.tallestIndex % N) * 0.04;
-    standY = 0 - 4 + Math.floor(s.tallestIndex / N) * 0.04;
+    standX = 1.2 - s.half + (s.tallestIndex % N) * s.cell;
+    standY = 0 - s.half + Math.floor(s.tallestIndex / N) * s.cell;
   } else {
     standX = 0.6;
     standY = 0.55;
@@ -188,8 +193,8 @@ export default async function run({ page, frame }) {
         const t = globalThis.__duck.terrain;
         t.frozen = true;
         const N = 201;
-        const col = Math.round((x - 1.2 + 4) / 0.04);
-        const row = Math.round((y + 4) / 0.04);
+        const col = Math.round((x - 1.2 + t.half) / t.cell);
+        const row = Math.round((y + t.half) / t.cell);
         for (let r = row - 5; r <= row + 5; r++) for (let c = col - 5; c <= col + 5; c++) t.heights[r * N + c] = h;
         t.touch();
       },
@@ -267,15 +272,17 @@ export default async function run({ page, frame }) {
         const d = globalThis.__duck;
         const N = 201;
         const scan = d.terrain.scanHeights;
-        const cell = (x, y) => Math.round((y + 4) / 0.04) * N + Math.round((x - 1.2 + 4) / 0.04);
+        const C = d.terrain.cell;
+        const H = d.terrain.half;
+        const cell = (x, y) => Math.round((y + H) / C) * N + Math.round((x - 1.2 + H) / C);
         const px = d.duck.pose[0];
         const py = d.duck.pose[1];
         let best = null;
         for (let sx = px - 2; sx <= px + 2; sx += 0.1) {
           for (let sy = py - 2; sy <= py + 2; sy += 0.1) {
             let clear = true;
-            for (let x = sx - 0.3; x <= sx + 1.2 && clear; x += 0.04) {
-              for (let y = sy - 0.45; y <= sy + 0.45; y += 0.04) {
+            for (let x = sx - 0.3; x <= sx + 1.2 && clear; x += C) {
+              for (let y = sy - 0.45; y <= sy + 0.45; y += C) {
                 const i = cell(x, y);
                 if (i < 0 || i >= N * N || scan[i] > 0) {
                   clear = false;
@@ -307,10 +314,10 @@ export default async function run({ page, frame }) {
           const x0 = sx + 0.45;
           const x1 = sx + 0.65;
           if (h > 0) {
-            const c0 = Math.round((x0 - 1.2 + 4) / 0.04);
-            const c1 = Math.round((x1 - 1.2 + 4) / 0.04);
-            const r0 = Math.round((sy - 0.3 + 4) / 0.04);
-            const r1 = Math.round((sy + 0.3 + 4) / 0.04);
+            const c0 = Math.round((x0 - 1.2 + t.half) / t.cell);
+            const c1 = Math.round((x1 - 1.2 + t.half) / t.cell);
+            const r0 = Math.round((sy - 0.3 + t.half) / t.cell);
+            const r1 = Math.round((sy + 0.3 + t.half) / t.cell);
             for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) t.heights[r * N + c] = h;
             t.touch();
           }

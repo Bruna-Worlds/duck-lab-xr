@@ -17,6 +17,7 @@ import {
   courseGoal,
   courseStartPad,
 } from './scene-assets/course-kit.scene-asset.js';
+import { courseDogBed, coursePlayMat } from './scene-assets/step-kit.scene-asset.js';
 import { toyRoom } from './scene-assets/toy-room.scene-asset.js';
 
 const publicAssetUrl = (filePath: string): string =>
@@ -46,6 +47,9 @@ export default defineAssets({
   'course-finish-pad': courseFinishPad,
   'course-crumb': courseCrumb,
   'course-ball': courseBall,
+  // Steps to climb (src/scene-assets/step-kit.scene-asset.ts).
+  'course-play-mat': coursePlayMat,
+  'course-dog-bed': courseDogBed,
   'toy-room': toyRoom,
   // Playground obstacles: real household objects scanned by Google Research
   // (CC BY 4.0, tools/assets/blender_jobs.py converted them).

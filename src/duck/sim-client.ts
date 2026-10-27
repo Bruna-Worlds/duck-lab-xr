@@ -25,8 +25,10 @@ import type {
   SimEvent,
   SimExportResult,
   SimReady,
+  SimScene,
   SimSnapshot,
   SimStats,
+  SimTof,
   WorkerToMain,
 } from './sim-protocol.js';
 import { TERRAIN_N } from './terrain-spec.js';
@@ -47,6 +49,11 @@ const RING = 16;
 const MAX_INTERP_GAP_MS = 100;
 
 const absolute = (url: string): string => new URL(url, document.baseURI).href;
+
+/** The navigation brain (tools/train/python/ducknav), beside the shipped policies. */
+export const NAV_BRAIN_URL = 'policies/ducklab/nav.onnx';
+/** The camera navigation brain (tools/train/python/isaacnav): the head camera's picture as well. */
+export const NAV_CAMERA_URL = 'policies/ducklab/nav-camera.onnx';
 
 /** Four seconds of control steps. */
 export const TELEMETRY_WINDOW = 200;
@@ -99,6 +106,16 @@ export class DuckSimClient {
   /** Robot telemetry, filled while setTelemetry(true) is on. */
   readonly telemetry = new TelemetryRing();
   private telemetryOn = false;
+  /** The head distance sensor's newest frame (tof.ts), while driving or after setDepth(true). */
+  tof: SimTof | null = null;
+  /** The navigation brain: off until asked for, then loading, ready or failed. */
+  navState: 'off' | 'loading' | 'ready' | 'error' = 'off';
+  navError = '';
+  /** True when the loaded brain also reads the head camera (send its pictures with sendCamera). */
+  navCamera = false;
+  private navUrl = '';
+  private driveGoal: [number, number] | null = null;
+  private depthOn = false;
   onEvent: ((event: SimEvent) => void) | null = null;
   onBenchmark: ((result: SimBenchmarkResult) => void) | null = null;
 
@@ -122,8 +139,8 @@ export class DuckSimClient {
   /** What the worker's model was built with. */
   private builtRoom: PhysicsCollider[] = [];
   private builtCourse: PhysicsCourse | null = null;
-  /** Terrain buffers not currently with the worker (two in rotation). */
-  private terrainFree: Float32Array[] = [new Float32Array(TERRAIN_N * TERRAIN_N), new Float32Array(TERRAIN_N * TERRAIN_N)];
+  /** Terrain buffers not currently with the worker (two in rotation; the scan layer, then the depth layer). */
+  private terrainFree: Float32Array[] = [new Float32Array(2 * TERRAIN_N * TERRAIN_N), new Float32Array(2 * TERRAIN_N * TERRAIN_N)];
   /** Rebuilds the worker reported (for the lab panel). */
   rebuilds = 0;
   rebuildMs = 0;
@@ -131,6 +148,7 @@ export class DuckSimClient {
   private policySwapId = 0;
   private policyWaiters = new Map<number, { resolve: (hash: string) => void; reject: (err: Error) => void }>();
   private snapshotWaiters = new Map<number, (snapshot: SimSnapshot) => void>();
+  private sceneWaiters = new Map<number, (scene: SimScene) => void>();
   private exportWaiters = new Map<number, (result: SimExportResult) => void>();
   /** The pack's MJCF as fetched, for scenario packs. */
   get sourceMjcf(): string | null {
@@ -285,6 +303,14 @@ export class DuckSimClient {
     this.worker.postMessage({ type: 'terrain', data } satisfies MainToWorker, [data.buffer]);
   }
 
+  /**
+   * The terrain's extent (metres from centre to edge) and whether its depth
+   * layer is soft; `contact` replaces the soft solref/solimp (tuning, tests).
+   */
+  setTerrainConfig(half: number, soft: boolean, contact?: { solref: readonly number[]; solimp: readonly number[] } | null): void {
+    this.worker.postMessage({ type: 'terrain-config', half, soft, ...(contact ?? {}) } satisfies MainToWorker);
+  }
+
   /** Plays a keyframe motion (N x NUM_JOINTS offsets at 50 Hz) as a move. */
   playMotion(frames: Float32Array, loop = false): void {
     this.worker.postMessage({ type: 'play-motion', frames, loop } satisfies MainToWorker);
@@ -305,6 +331,15 @@ export class DuckSimClient {
     return new Promise((resolve) => {
       this.snapshotWaiters.set(id, resolve);
       this.post({ type: 'snapshot', id });
+    });
+  }
+
+  /** The static scene as shapes and the terrain (for other simulators and viewers). */
+  scene(): Promise<SimScene> {
+    const id = ++this.snapshotId;
+    return new Promise((resolve) => {
+      this.sceneWaiters.set(id, resolve);
+      this.post({ type: 'scene', id });
     });
   }
 
@@ -394,6 +429,51 @@ export class DuckSimClient {
     });
   }
 
+  /**
+   * Self-driving: the navigation brain at `url` steers towards `goal` (stage
+   * frame, MuJoCo x and y) from the head's distance sensor, overriding the
+   * command's speed and turn; `null` hands back to the command. Cheap to call
+   * every frame: only a goal that moved is sent.
+   */
+  drive(goal: readonly [number, number] | null, url = NAV_BRAIN_URL): void {
+    if (!goal) {
+      if (this.driveGoal) this.post({ type: 'drive', goal: null, url: '' });
+      this.driveGoal = null;
+      return;
+    }
+    if (this.driveGoal && url === this.navUrl && Math.hypot(goal[0] - this.driveGoal[0], goal[1] - this.driveGoal[1]) < 0.01) return;
+    if (this.navState === 'off' || this.navState === 'error' || url !== this.navUrl) {
+      this.navState = 'loading';
+      this.navCamera = false;
+    }
+    this.navUrl = url;
+    this.driveGoal = [goal[0], goal[1]];
+    this.post({ type: 'drive', goal: this.driveGoal, url: absolute(url) });
+  }
+
+  /** True while drive() has a goal. */
+  get driving(): boolean {
+    return this.driveGoal !== null;
+  }
+
+  /** True while a camera brain drives and wants the head camera's pictures. */
+  get wantsCamera(): boolean {
+    return this.driveGoal !== null && this.navState === 'ready' && this.navCamera;
+  }
+
+  /** The head camera's picture for the camera brain (sim-protocol.ts SimCameraFrame). */
+  sendCamera(frame: Float32Array): void {
+    this.post({ type: 'camera-frame', frame });
+  }
+
+  /** Asks for the head sensor's frames (the robot panel's DEPTH view) even when not driving. */
+  setDepth(on: boolean): void {
+    if (on === this.depthOn) return;
+    this.depthOn = on;
+    if (!on && !this.driveGoal) this.tof = null;
+    this.post({ type: 'depth', on });
+  }
+
   /** Starts or stops the robot telemetry stream (cheap; only the panel's details view needs it). */
   setTelemetry(on: boolean): void {
     if (on === this.telemetryOn) return;
@@ -469,6 +549,21 @@ export class DuckSimClient {
         waiter?.(msg);
         break;
       }
+      case 'scene': {
+        const waiter = this.sceneWaiters.get(msg.id);
+        this.sceneWaiters.delete(msg.id);
+        waiter?.(msg);
+        break;
+      }
+      case 'tof':
+        this.tof = msg;
+        break;
+      case 'nav-loaded':
+        this.navState = msg.ok ? 'ready' : 'error';
+        this.navError = msg.message ?? '';
+        this.navCamera = !!msg.camera;
+        if (!msg.ok) console.warn(`[duck-sim] ${this.navError}`);
+        break;
       case 'export': {
         const waiter = this.exportWaiters.get(msg.id);
         this.exportWaiters.delete(msg.id);

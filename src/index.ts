@@ -17,6 +17,7 @@ import { DuckCamSystem } from './duck/duck-cam-system.js';
 import { DuckSystem } from './duck/duck-system.js';
 import { EditorSystem } from './editor/editor-system.js';
 import { FxSystem } from './fx/fx-system.js';
+import { IsaacLinkSystem } from './link/isaac-link.js';
 import { LabLinkSystem } from './link/lab-link-system.js';
 import { NavSystem } from './nav/nav-system.js';
 import { PanelSystem } from './panel.js';
@@ -180,6 +181,7 @@ if (staleHeadsetTab) {
     world.registerSystem(LabLinkSystem);
     world.registerSystem(RealDuckSystem);
     world.registerSystem(RobotPanelSystem);
+    world.registerSystem(IsaacLinkSystem); // ?isaac: Isaac Sim mirrors the session (tools/isaac)
     keepPointerDotsOnTop(world); // panels draw on top, so the ray's dot on them does too
     if (import.meta.env.DEV && new URLSearchParams(location.search).has('lab')) {
       const profiler = new SystemProfiler(world);
@@ -207,6 +209,7 @@ if (staleHeadsetTab) {
         policyInbox: world.getSystem(PolicyInboxSystem),
         realDuck: world.getSystem(RealDuckSystem),
         labLink: world.getSystem(LabLinkSystem),
+        isaac: world.getSystem(IsaacLinkSystem),
         views: world.getSystem(ViewSwitchSystem),
         controls: world.getSystem(ControlsCardSystem),
         orbit: world.getSystem(OrbitCameraSystem),

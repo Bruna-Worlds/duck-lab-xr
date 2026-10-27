@@ -7,7 +7,8 @@
  *   band   (1080 x 240)  the caption of the moment, and the link between the halves
  *   bottom (1080 x 840)  the trainer page, zooming onto the card that matters
  * Both halves run on one wall clock; "!ff N" marks speed both up together
- * (with a badge). Output: artifacts/video/stack.mp4 (1080 x 1920, 30 fps).
+ * (with a badge). Output: artifacts/video/stack.mp4 (1080 x 1920, 30 fps);
+ * with FILM_LANG=zh, the same film with Chinese words: stack-zh.mp4 (../lang.mjs).
  *
  *   node tools/film/stack/compose-stack.mjs [takes dir] [out.mp4]
  */
@@ -16,15 +17,16 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, wri
 import { join, resolve } from 'node:path';
 import { chromium } from 'playwright';
 import { findFfmpeg } from '../ffmpeg.mjs';
+import { filmCss, HTML_LANG, LANG_SUFFIX, speedLabel, tr } from '../lang.mjs';
 
 const TAKES = process.argv[2] ?? 'artifacts/video/stack';
-const OUTFILE = process.argv[3] ?? 'artifacts/video/stack.mp4';
+const OUTFILE = process.argv[3] ?? `artifacts/video/stack${LANG_SUFFIX}.mp4`;
 const FFMPEG = findFfmpeg();
 const FPS = 30;
 const W = 1080;
 const HALF = 840;
 const BAND = 240;
-const work = join(TAKES, 'compose');
+const work = join(TAKES, `compose${LANG_SUFFIX}`);
 rmSync(work, { recursive: true, force: true });
 mkdirSync(work, { recursive: true });
 
@@ -305,7 +307,7 @@ const topZoom = zoompan(topKeys, W, HALF);
 // --- Overlays drawn as pictures (Chromium): band captions, labels, badge, tokens -----
 // The display font goes in as data: a page made with setContent may not load file links.
 const fontData = readFileSync('public/fonts/BebasNeue-Regular.ttf').toString('base64');
-const css = `@font-face { font-family: Bebas; src: url(data:font/ttf;base64,${fontData}) format('truetype'); }
+const css = filmCss(`@font-face { font-family: Bebas; src: url(data:font/ttf;base64,${fontData}) format('truetype'); }
 * { margin: 0; box-sizing: border-box; }
 body { background: transparent; font-family: 'Segoe UI', system-ui, sans-serif; }
 .band { width: ${W}px; height: ${BAND}px; background: #0f1020; border-top: 3px solid #ffcf3f; border-bottom: 3px solid #ffcf3f; display: flex; flex-direction: column; justify-content: center; padding: 0 56px; position: relative; }
@@ -315,24 +317,25 @@ body { background: transparent; font-family: 'Segoe UI', system-ui, sans-serif; 
 .pill i { width: 14px; height: 14px; border-radius: 50%; background: #3de0b8; display: inline-block; }
 .pill small { font: 600 20px/1 'Segoe UI', sans-serif; letter-spacing: 0; color: rgba(255, 244, 220, 0.7); }
 .badge { display: inline-block; padding: 12px 22px 9px; border-radius: 14px; background: #ffcf3f; color: #0f1020; font: 38px/1 Bebas; letter-spacing: 2px; }
-.token { display: inline-flex; align-items: center; gap: 10px; padding: 12px 18px 10px; border-radius: 16px; font: 30px/1 Bebas; letter-spacing: 2px; color: #0f1020; box-shadow: 0 6px 22px rgba(0, 0, 0, 0.5); }`;
+.token { display: inline-flex; align-items: center; gap: 10px; padding: 12px 18px 10px; border-radius: 16px; font: 30px/1 Bebas; letter-spacing: 2px; color: #0f1020; box-shadow: 0 6px 22px rgba(0, 0, 0, 0.5); }`);
 const browser = await chromium.launch({ headless: true });
 const shot = async (name, html, width, height) => {
   const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
-  await page.setContent(`<!doctype html><html><head><style>${css}</style></head><body>${html}</body></html>`);
+  await page.setContent(`<!doctype html><html lang="${HTML_LANG}"><head><style>${css}</style></head><body>${html}</body></html>`);
   await page.evaluate(() => document.fonts.ready);
   await page.screenshot({ path: join(work, name), omitBackground: true, clip: { x: 0, y: 0, width, height } });
   await page.close();
 };
 const esc = (s) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
-await shot('band-0.png', `<div class="band"><div class="link">&#8645; HEADSET AND COMPUTER, LINKED OVER WI-FI</div><div class="text">&nbsp;</div></div>`, W, BAND);
+const linkLine = esc(tr('HEADSET AND COMPUTER, LINKED OVER WI-FI'));
+await shot('band-0.png', `<div class="band"><div class="link">&#8645; ${linkLine}</div><div class="text">&nbsp;</div></div>`, W, BAND);
 for (let i = 0; i < captions.length; i++) {
-  await shot(`band-${i + 1}.png`, `<div class="band"><div class="link">&#8645; HEADSET AND COMPUTER, LINKED OVER WI-FI</div><div class="text">${esc(captions[i].text)}</div></div>`, W, BAND);
+  await shot(`band-${i + 1}.png`, `<div class="band"><div class="link">&#8645; ${linkLine}</div><div class="text">${esc(tr(captions[i].text))}</div></div>`, W, BAND);
 }
-await shot('label-top.png', `<div class="pill"><i></i>HEADSET <small>mixed reality, emulated (IWER)</small></div>`, 760, 64);
-await shot('label-bottom.png', `<div class="pill"><i style="background:#ffcf3f"></i>YOUR COMPUTER <small>Duck Lab XR trainer, in the browser</small></div>`, 760, 64);
+await shot('label-top.png', `<div class="pill"><i></i>${tr('HEADSET')} <small>${esc(tr('mixed reality, emulated (IWER)'))}</small></div>`, 760, 64);
+await shot('label-bottom.png', `<div class="pill"><i style="background:#ffcf3f"></i>${tr('YOUR COMPUTER')} <small>${esc(tr('Duck Lab XR trainer, in the browser'))}</small></div>`, 760, 64);
 const speedsUsed = [...new Set(speeds.map((s) => s.speed).filter((v) => v > 1))];
-for (const v of speedsUsed) await shot(`ff-${v}.png`, `<div class="badge">&#9654;&#9654; ${v}&times; FASTER</div>`, 300, 64);
+for (const v of speedsUsed) await shot(`ff-${v}.png`, `<div class="badge">&#9654;&#9654; ${speedLabel(v)}</div>`, 300, 64);
 await browser.close();
 
 // --- Timing of overlays on the film clock ----------------------------------------------

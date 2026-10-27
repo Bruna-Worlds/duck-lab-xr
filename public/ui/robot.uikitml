@@ -80,6 +80,7 @@
   <div id="rp-tabs" class="tabs">
     <div id="rp-view-motion" class="tab">MOTION</div>
     <div id="rp-view-vision" class="tab">VISION</div>
+    <div id="rp-view-depth" class="tab">DEPTH</div>
     <div id="rp-view-note" class="tab-note">The room as its physics knows it</div>
   </div>
   <img id="rp-feed" class="feed" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAARSURBVBhXY5CRNfsPwgwwBgAuBgW5KUFH0AAAAABJRU5ErkJggg==" />

@@ -1,0 +1,45 @@
+{
+  "version": "ducklab.nav.v1",
+  "rateHz": 10.0,
+  "obs": [
+    {
+      "name": "tof",
+      "size": 192,
+      "about": "the newest 3 frames first; each 8x8 zones, row 0 the top, column 0 the sensor's left; distance / 4.0 m, misses = 1"
+    },
+    {
+      "name": "goal",
+      "size": 3,
+      "about": "distance / 4.0 m (max 1), sin and cos of the bearing from the robot's heading (left positive)"
+    },
+    {
+      "name": "lastAction",
+      "size": 2,
+      "about": "the brain's previous raw output, clipped to [-1, 1] (not the twist)"
+    },
+    {
+      "name": "twist",
+      "size": 2,
+      "about": "the smoothed command the walker follows: forward m/s, turn rad/s (alpha 0.14 per 50 Hz step)"
+    },
+    {
+      "name": "yawRate",
+      "size": 1,
+      "about": "the gyro's z, rad/s, as the walking policy sees it"
+    }
+  ],
+  "output": {
+    "name": "twist",
+    "about": "target forward m/s (-0.1 to 0.25) and turn rad/s (+-1.0); smooth it like the stick"
+  },
+  "note": "nav.onnx's lastAction input wants the raw clipped action; recover it from the twist output: forward >= 0 ? forward / VX_FORWARD : forward / VX_BACK, turn / WZ_MAX.",
+  "tof": {
+    "zones": 8,
+    "fovDeg": 45.0,
+    "rangeM": 4.0,
+    "site": "tof"
+  },
+  "goalRadiusM": 0.2,
+  "walker": "walk.onnx",
+  "round": 549
+}

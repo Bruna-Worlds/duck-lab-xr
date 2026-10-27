@@ -39,9 +39,11 @@ import { headsetMenu, readMenuMinimized, readScoreMinimized, writeMenuMinimized,
 import { keepPanelOnTop } from './ui/on-top.js';
 import { headsetLanding } from './ui/page-mode.js';
 import { PHONE_CAM_HEIGHT, PHONE_EDGE_PX } from './ui/robot-panel-system.js';
-import { NavSystem } from './nav/nav-system.js';
+import { type NavDriver, NavSystem } from './nav/nav-system.js';
 import { PlaygroundSystem } from './playgrounds/playground-system.js';
+import { DEPTH_LEVELS } from './room/depth-level.js';
 import { RoomSystem, type RoomState } from './room/room-system.js';
+import { TerrainSystem } from './room/terrain-system.js';
 
 const SCORE_NODE = 'run-panel';
 const MENU_NODE = 'menu-panel';
@@ -49,6 +51,12 @@ const MOVES_NODE = 'moves-panel';
 const LAB_NODE = 'lab-panel'; // dev only (?lab), owned by src/panel.ts
 const PANELS = [SCORE_NODE, MENU_NODE, MOVES_NODE];
 const REFRESH_MS = 100;
+/** The menu's AUTOPILOT DRIVER chips. */
+const DRIVER_CHIPS: readonly (readonly [string, NavDriver])[] = [
+  ['driver-planner', 'planner'],
+  ['driver-brain', 'depth'],
+  ['driver-camera', 'camera'],
+];
 const MAX_MULTIPLIER = 8;
 const CHIPS = 6;
 /** Palette chip id -> manifest asset it adds (see spawn-pieces.ts). */
@@ -158,6 +166,7 @@ export class RunPanelSystem extends createSystem({}) {
   private nav: NavSystem | undefined;
   private cam: DuckCamSystem | undefined;
   private editor: EditorSystem | undefined;
+  private terrain: TerrainSystem | undefined;
   private unbind: (() => void)[] = [];
   private flat = true;
   private menuPlaced = false;
@@ -179,6 +188,7 @@ export class RunPanelSystem extends createSystem({}) {
     this.nav = this.world.getSystem(NavSystem);
     this.cam = this.world.getSystem(DuckCamSystem);
     this.editor = this.world.getSystem(EditorSystem);
+    this.terrain = this.world.getSystem(TerrainSystem);
     const onResize = () => this.layoutForScreen();
     window.addEventListener('resize', onResize);
     this.cleanupFuncs.push(
@@ -278,6 +288,12 @@ export class RunPanelSystem extends createSystem({}) {
       'run-mood',
       'moves-label',
       'moves-row',
+      'depth-label',
+      'depth-row',
+      ...DEPTH_LEVELS.map((level) => `depth-${level}`),
+      'driver-planner',
+      'driver-brain',
+      'driver-camera',
       ...Object.keys(PALETTE_BUTTONS),
       'ed-save',
       'ed-share',
@@ -315,6 +331,10 @@ export class RunPanelSystem extends createSystem({}) {
     });
     listen('cam-button', () => this.cam?.toggle());
     listen('edit-button', () => this.editor?.toggle());
+    for (const level of DEPTH_LEVELS) listen(`depth-${level}`, () => this.terrain?.setLevel(level));
+    listen('driver-planner', () => this.nav?.setDriver('planner'));
+    listen('driver-brain', () => this.nav?.setDriver('depth'));
+    listen('driver-camera', () => this.nav?.setDriver('camera'));
     listen('menu-button', () => this.toggleMenu());
     listen('menu-close', () => this.toggleMenu(false));
     listen('menu-min', () => this.setMenuMinimized(true));
@@ -661,6 +681,28 @@ export class RunPanelSystem extends createSystem({}) {
       const active = entry.id === playground?.current;
       this.style(id, active ? YELLOW : CHIP_IDLE);
       this.color(id, active ? INK : CREAM);
+    }
+
+    // Room depth: how much the live depth sensor shapes the terrain, the level in use
+    // highlighted. Only in mixed reality: elsewhere there is no live depth.
+    const session = this.world.session;
+    const mixedReality = !!session && session.environmentBlendMode !== 'opaque';
+    this.display('depth-label', mixedReality);
+    this.display('depth-row', mixedReality);
+    if (mixedReality) {
+      const level = this.terrain?.level;
+      for (const option of DEPTH_LEVELS) {
+        const active = option === level;
+        this.style(`depth-${option}`, active ? YELLOW : CHIP_IDLE);
+        this.color(`depth-${option}`, active ? INK : CREAM);
+      }
+    }
+
+    // Autopilot driver: the path planner, the depth brain or the camera brain, the one in use highlighted.
+    const driver = this.nav?.driver ?? 'planner';
+    for (const [id, which] of DRIVER_CHIPS) {
+      this.style(id, driver === which ? YELLOW : CHIP_IDLE);
+      this.color(id, driver === which ? INK : CREAM);
     }
 
     // The editor: its palette row and status show only while editing.

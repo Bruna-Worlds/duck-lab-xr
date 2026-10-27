@@ -23,6 +23,13 @@
     "credits": "Backyard models and textures: Poly Haven (CC0)"
   },
   {
+    "id": "dog-bed",
+    "title": "Dog Bed",
+    "mode": "both",
+    "par": 40,
+    "blurb": "Up a 2 cm play mat, then onto a 3 cm dog bed: the edges a real duck meets at home."
+  },
+  {
     "id": "free-roam",
     "title": "Your Room",
     "mode": "mr",

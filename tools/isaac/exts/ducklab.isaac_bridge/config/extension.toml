@@ -1,0 +1,24 @@
+[package]
+version = "0.1.0"
+title = "Duck Lab XR bridge"
+description = "Mirrors a live Duck Lab XR session (the room's colliders, the terrain, Pip and the ball) into the open stage, over a WebSocket on Kit's web server; the viewport goes back to the app over Isaac Sim's WebRTC stream."
+category = "Simulation"
+keywords = ["duck lab xr", "microduck", "webrtc", "mujoco", "mixed reality"]
+authors = ["Bruna Worlds"]
+repository = "https://github.com/Bruna-Worlds/duck-lab-xr"
+readme = "README.md"
+
+[dependencies]
+"omni.services.core" = {}
+"omni.services.transport.server.http" = {}
+"omni.usd" = {}
+"omni.kit.viewport.utility" = {}
+
+[[python.module]]
+name = "ducklab.isaac_bridge"
+
+[settings]
+# Browser pages allowed to drive the stage and to start the WebRTC stream from
+# their own page (a regular expression on the Origin header). Pages on this
+# computer or the local network, and the public site.
+exts."ducklab.isaac_bridge".origins = '^https?://(localhost|127\.0\.0\.1|\[::1\]|duck\.bruna\.world|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?$'

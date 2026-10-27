@@ -43,7 +43,7 @@ class DuckPackEnv(gym.Env):
             xml = re.sub(r'<geom\b[^>]*\bname="course_\d+"[^>]*/>', "", xml)
             xml = xml.replace('file="terrain.bin"', 'nrow="2" ncol="2"')
         cwd = os.getcwd()
-        os.chdir(pack_dir)  # meshdir and terrain.bin are relative to the scene
+        os.chdir(pack_dir)  # meshdir (assets/: the meshes and terrain.bin) is relative to the scene
         try:
             self.model = mujoco.MjModel.from_xml_string(xml)
         finally:

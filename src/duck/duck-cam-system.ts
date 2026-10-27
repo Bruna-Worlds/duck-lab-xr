@@ -30,6 +30,7 @@ import {
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
+  NearestFilter,
   type Object3D,
   PerspectiveCamera,
   Quaternion,
@@ -48,6 +49,8 @@ import type { DuckRig } from './duck-rig.js';
 import { DuckStage } from './duck-stage.js';
 import { DuckSystem } from './duck-system.js';
 import { DuckVision } from './duck-vision.js';
+import { DepthView } from './depth-view.js';
+import { NAV_CAMERA_CHANNELS, NAV_CAMERA_HEIGHT, NAV_CAMERA_WIDTH } from './sim-protocol.js';
 
 const RENDER_MS = 125; // 8 frames a second is plenty for a robot's-eye view
 const WIDTH = 256;
@@ -64,12 +67,17 @@ const VISION_BACKDROP = 0xd8d2c8;
 const VISION_FLOOR = 0xb49a7a;
 const COLLECT_MS = 2000; // look for new labelled objects this often (and on level or scan changes)
 const VIEW_KEY = 'duckdash.cam.view';
+// The camera brain's eye (tools/train/python/isaacnav): Pollen's head camera, 45 degrees tall, 16:9.
+const BRAIN_MS = 100; // its ten decisions a second
+const BRAIN_FOV = 45;
 
-export type CamView = 'motion' | 'vision';
+/** motion: the physics' world model; vision: a camera view with labels; depth: the head's 8 x 8 distance sensor. */
+export type CamView = 'motion' | 'vision' | 'depth';
 
 const readView = (): CamView => {
   try {
-    return localStorage.getItem(VIEW_KEY) === 'vision' ? 'vision' : 'motion';
+    const view = localStorage.getItem(VIEW_KEY);
+    return view === 'vision' || view === 'depth' ? view : 'motion';
   } catch {
     return 'motion';
   }
@@ -122,6 +130,7 @@ export class DuckCamSystem extends createSystem({
   private orbit: OrbitCameraSystem | undefined;
   private terrain: TerrainSystem | undefined;
   private eye!: PerspectiveCamera;
+  private depth!: DepthView;
   private target!: WebGLRenderTarget;
   private rigRoot: Object3D | null = null;
   private head: Object3D | null = null;
@@ -147,6 +156,14 @@ export class DuckCamSystem extends createSystem({
   private readonly v2 = new Vector3();
   private lastCollect = 0;
   private collectedScan = -1;
+  /** The camera brain's eye and its pictures (sent to the sim while that brain drives). */
+  private brainEye!: PerspectiveCamera;
+  private brainTarget!: WebGLRenderTarget;
+  private brainPixels!: Uint8Array;
+  private brainFrame!: Float32Array;
+  private lastBrain = 0;
+  /** Pictures sent to the camera brain so far (for tests). */
+  brainFrames = 0;
 
   init(): void {
     this.duck = this.world.getSystem(DuckSystem);
@@ -163,6 +180,17 @@ export class DuckCamSystem extends createSystem({
     this.target = new WebGLRenderTarget(WIDTH, HEIGHT, { depthBuffer: true });
     this.target.texture.colorSpace = SRGBColorSpace;
     this.target.texture.name = 'duck-cam-feed';
+    this.brainEye = new PerspectiveCamera(BRAIN_FOV, NAV_CAMERA_WIDTH / NAV_CAMERA_HEIGHT, 0.02, 8);
+    this.brainEye.name = 'duck-brain-cam';
+    this.brainEye.layers.enable(CAM_ONLY_LAYER);
+    this.brainTarget = new WebGLRenderTarget(NAV_CAMERA_WIDTH, NAV_CAMERA_HEIGHT, { depthBuffer: true });
+    this.brainTarget.texture.colorSpace = SRGBColorSpace;
+    this.brainTarget.texture.minFilter = NearestFilter;
+    this.brainTarget.texture.magFilter = NearestFilter;
+    this.brainTarget.texture.name = 'duck-brain-cam';
+    this.brainPixels = new Uint8Array(NAV_CAMERA_WIDTH * NAV_CAMERA_HEIGHT * 4);
+    this.brainFrame = new Float32Array(NAV_CAMERA_CHANNELS * NAV_CAMERA_HEIGHT * NAV_CAMERA_WIDTH);
+    this.depth = new DepthView(WIDTH, HEIGHT);
     this.grid = floorGrid();
     this.backdrop = new Mesh(
       new SphereGeometry(11, 24, 12),
@@ -193,6 +221,7 @@ export class DuckCamSystem extends createSystem({
     });
     this.cleanupFuncs.push(() => {
       this.target.dispose();
+      this.brainTarget.dispose();
       this.grid.geometry.dispose();
       (this.grid.material as LineBasicMaterial).dispose();
       this.backdrop.geometry.dispose();
@@ -256,10 +285,21 @@ export class DuckCamSystem extends createSystem({
       this.mountEye(rig.trunk);
       this.levelEye(rig);
       this.eyeLevelled = true;
+      // The camera brain's eye rides where the feed's does, with the real camera's field of view.
+      this.eye.parent?.add(this.brainEye);
+      this.brainEye.position.copy(this.eye.position);
+      this.brainEye.quaternion.copy(this.eye.quaternion);
       stageEntity.object3D?.add(this.grid, this.backdrop, this.floor); // the room model's floor and sky, in the stage frame
     }
-    if (!this.shown || !this.feedWanted) return;
+    // The depth view needs the sim's sensor frames (it sends them anyway while the brain drives).
+    duck.sim?.setDepth(this.shown && this.feedWanted && this.view === 'depth');
     const now = performance.now();
+    // The camera brain sees through the head camera whether or not the panel shows it.
+    if (duck.sim?.wantsCamera && now - this.lastBrain >= BRAIN_MS) {
+      this.lastBrain = now;
+      this.renderBrain(rig.root, stageEntity);
+    }
+    if (!this.shown || !this.feedWanted) return;
     if (now - this.lastRender < RENDER_MS) return;
     this.lastRender = now;
     this.render(rig.root, stageEntity);
@@ -368,10 +408,56 @@ export class DuckCamSystem extends createSystem({
   /** One frame from the duck's eyes into the feed texture. */
   private render(rigRoot: Object3D, stage: Entity): void {
     const renderer = this.world.renderer;
+    if (this.view === 'depth') {
+      const tof = this.duck?.sim?.tof;
+      if (tof) this.depth.update(tof.zones);
+      this.depth.setCamera(this.duck?.sim?.wantsCamera ? this.brainTarget.texture : null);
+      const xrEnabled = renderer.xr.enabled;
+      renderer.xr.enabled = false;
+      this.depth.draw(renderer, this.target);
+      renderer.xr.enabled = xrEnabled;
+      this.frames++;
+      return;
+    }
+    const visionView = this.view === 'vision';
+    this.drawScene(rigRoot, stage, this.eye, this.target, visionView, visionView);
+    this.frames++;
+  }
+
+  /**
+   * One picture for the camera brain: the scene from its eye (in mixed reality
+   * the solid room model, as the vision view draws it), read back and sent to
+   * the sim as RGB 0..1, channels first, row 0 the top.
+   */
+  private renderBrain(rigRoot: Object3D, stage: Entity): void {
+    const renderer = this.world.renderer;
+    this.drawScene(rigRoot, stage, this.brainEye, this.brainTarget, true, false);
+    renderer.readRenderTargetPixels(this.brainTarget, 0, 0, NAV_CAMERA_WIDTH, NAV_CAMERA_HEIGHT, this.brainPixels);
+    const w = NAV_CAMERA_WIDTH;
+    const h = NAV_CAMERA_HEIGHT;
+    const plane = w * h;
+    const px = this.brainPixels;
+    const out = this.brainFrame;
+    for (let y = 0; y < h; y++) {
+      const row = (h - 1 - y) * w; // GL rows run bottom to top
+      for (let x = 0; x < w; x++) {
+        const i = (y * w + x) * 4;
+        const o = row + x;
+        out[o] = px[i] / 255;
+        out[plane + o] = px[i + 1] / 255;
+        out[2 * plane + o] = px[i + 2] / 255;
+      }
+    }
+    this.duck?.sim?.sendCamera(out);
+    this.brainFrames++;
+  }
+
+  /** Renders the scene from a head camera into a target as the duck's eyes see it (the duck itself hidden). */
+  private drawScene(rigRoot: Object3D, stage: Entity, camera: PerspectiveCamera, target: WebGLRenderTarget, visionView: boolean, labels: boolean): void {
+    const renderer = this.world.renderer;
     const blocks = this.terrain?.blocksForCam(stage) ?? null;
     const blocksWereVisible = blocks?.visible ?? false;
     if (blocks) blocks.visible = true;
-    const visionView = this.view === 'vision';
     this.room?.setCamView(true, visionView);
     // The 2D page hides walls the player looks through from outside; the duck is inside the room.
     this.orbit ??= this.world.getSystem(OrbitCameraSystem);
@@ -380,9 +466,9 @@ export class DuckCamSystem extends createSystem({
     // The 2D page's screen-space panels hang under the player's camera, the
     // player's rig carries the controllers and hands, and the robot panel
     // shows this very texture: keep them all out of the shot.
-    const camera = this.world.camera;
-    const cameraWasVisible = camera.visible;
-    camera.visible = false;
+    const playerCamera = this.world.camera;
+    const cameraWasVisible = playerCamera.visible;
+    playerCamera.visible = false;
     const player = this.world.player;
     const playerWasVisible = player.visible;
     player.visible = false;
@@ -401,7 +487,7 @@ export class DuckCamSystem extends createSystem({
       this.grid.visible = !visionView;
       this.floor.visible = visionView;
       // Centred on the eye (the rig, and anything under it, is hidden for this render).
-      this.eye.getWorldPosition(this.backdrop.position);
+      camera.getWorldPosition(this.backdrop.position);
       this.backdrop.parent?.worldToLocal(this.backdrop.position);
       this.backdrop.visible = true;
       if (!this.sky?.parent) this.sky = this.world.scene.getObjectByName('Sky') ?? null;
@@ -415,9 +501,9 @@ export class DuckCamSystem extends createSystem({
     const shadowsAuto = renderer.shadowMap.autoUpdate;
     renderer.xr.enabled = false;
     renderer.shadowMap.autoUpdate = false; // reuse the frame's shadow maps
-    renderer.setRenderTarget(this.target);
-    renderer.render(this.world.scene, this.eye);
-    if (visionView) this.renderVision(renderer, rigRoot);
+    renderer.setRenderTarget(target);
+    renderer.render(this.world.scene, camera);
+    if (labels) this.renderVision(renderer, rigRoot);
     renderer.setRenderTarget(previousTarget);
     renderer.shadowMap.autoUpdate = shadowsAuto;
     renderer.xr.enabled = xrEnabled;
@@ -429,12 +515,11 @@ export class DuckCamSystem extends createSystem({
       if (this.sky) this.sky.visible = skyWasVisible;
     }
     for (const object of this.hidden) object.visible = object.userData.duckCamVisible !== false;
-    camera.visible = cameraWasVisible;
+    playerCamera.visible = cameraWasVisible;
     player.visible = playerWasVisible;
     rigRoot.visible = true;
     this.room?.setCamView(false);
     this.orbit?.revealHidden(false);
     if (blocks) blocks.visible = blocksWereVisible;
-    this.frames++;
   }
 }

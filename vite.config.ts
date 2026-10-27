@@ -228,7 +228,8 @@ function dropDevOnlyModels(): Plugin {
 
 export default defineConfig({
   plugins: [iwsdkDev(), dropDevOnlyModels(), duckInbox(), duckLabSite(), trainerPage()],
-  server: { host: '0.0.0.0', port: 8081, open: false },
+  // artifacts/ fills with recordings (thousands of film frames a take) and logs: watching it kept the dev server busy.
+  server: { host: '0.0.0.0', port: 8081, open: false, watch: { ignored: ['**/artifacts/**', '**/docs/**'] } },
   build: {
     outDir: 'dist',
     sourcemap: process.env.NODE_ENV !== 'production',

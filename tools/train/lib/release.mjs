@@ -71,6 +71,7 @@ function indexEntry(id, manifest) {
     baselineFallRate: manifest.results?.baseline?.fallRate ?? null,
     note: manifest.note ?? '',
     hubRepo: manifest.hub?.repo ?? null,
+    crossCheck: manifest.crossCheck?.table ?? null,
   };
 }
 

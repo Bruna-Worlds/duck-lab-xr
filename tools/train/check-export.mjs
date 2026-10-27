@@ -4,12 +4,12 @@
 /**
  * Loads an exported pack folder (tools/lab Connect, or replay.mjs --export)
  * the way an external trainer would: scene.xml from its own files (meshes in
- * assets/, height field in terrain.bin), the start state from state.json,
+ * assets/, height field in assets/terrain.bin), the start state from state.json,
  * and steps it for two seconds with the shipped walking policy.
  *
  *   node tools/train/check-export.mjs artifacts/connector/<job>/<pack>/
  */
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import loadMujoco from '@mujoco/mujoco';
 import * as ort from 'onnxruntime-node';
@@ -19,7 +19,7 @@ const mj = await loadMujoco();
 const vfs = new mj.MjVFS();
 for (const file of readdirSync(join(dir, 'assets'))) vfs.addBuffer(`assets/${file}`, new Uint8Array(readFileSync(join(dir, 'assets', file))));
 try {
-  vfs.addBuffer('terrain.bin', new Uint8Array(readFileSync(join(dir, 'terrain.bin'))));
+  vfs.addBuffer('terrain.bin', new Uint8Array(readFileSync(existsSync(join(dir, 'assets', 'terrain.bin')) ? join(dir, 'assets', 'terrain.bin') : join(dir, 'terrain.bin'))));
 } catch {
   // a pack without terrain
 }

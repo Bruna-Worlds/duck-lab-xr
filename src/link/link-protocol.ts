@@ -34,6 +34,8 @@ export interface BrainRelease {
   note?: string;
   /** The public Hub repo it was published to (what a real duck downloads), if any. */
   hubRepo?: string | null;
+  /** The trainer page's cross-check: each brain's falls on the packs, per physics engine. */
+  crossCheck?: { brain: string; engine: string; falls: number; walkedM?: number }[] | null;
 }
 
 export interface BrainIndex {

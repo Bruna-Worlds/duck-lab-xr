@@ -69,7 +69,7 @@ try {
   const files = unzip(buf);
   const names = Object.keys(files);
   const base = `${r.id}/${PACK}/`;
-  const want = ['START_HERE.md', 'job.json', 'python/duck_env.py', 'python/train_ppo.py', 'python/replay.py', 'python/requirements.txt', `${PACK}/scene.xml`, `${PACK}/state.json`, `${PACK}/terrain.bin`, `${PACK}/terrain.obj`, `${PACK}/obstacles.obj`, `${PACK}/trajectory.csv`, `${PACK}/policies/walk.onnx`];
+  const want = ['START_HERE.md', 'job.json', 'python/duck_env.py', 'python/train_ppo.py', 'python/replay.py', 'python/requirements.txt', `${PACK}/scene.xml`, `${PACK}/state.json`, `${PACK}/assets/terrain.bin`, `${PACK}/terrain.obj`, `${PACK}/obstacles.obj`, `${PACK}/trajectory.csv`, `${PACK}/policies/walk.onnx`];
   const missing = want.filter((w) => !files[`${r.id}/${w}`]);
   check('it holds everything START_HERE.md lists', missing.length === 0, missing.length ? `missing ${missing.join(', ')}` : `${names.length} files`);
   const start = files[`${r.id}/START_HERE.md`].toString('utf8');
@@ -81,7 +81,7 @@ try {
   for (const name of names) {
     if (name.startsWith(`${base}assets/`)) vfs.addBuffer(`assets/${name.slice(base.length + 7)}`, new Uint8Array(files[name]));
   }
-  vfs.addBuffer('terrain.bin', new Uint8Array(files[`${base}terrain.bin`]));
+  vfs.addBuffer('terrain.bin', new Uint8Array(files[`${base}assets/terrain.bin`]));
   let model = null;
   try {
     model = mj.MjModel.from_xml_string(files[`${base}scene.xml`].toString('utf8'), vfs);

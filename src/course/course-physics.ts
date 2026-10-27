@@ -87,6 +87,7 @@ export function colliderFromSpec(spec: ColliderSpec, relative: Matrix4): Physics
     pos: toMujocoPosition(specPos),
     quat: toArray4(specMjQuat),
     friction: spec.friction,
+    ...(spec.walkable ? { walkable: true } : {}),
   };
 }
 

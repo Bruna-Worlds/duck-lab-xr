@@ -7,9 +7,8 @@
  * the cells under it; reading only the vertices would leave a thin spike at
  * each corner that the duck could walk between. Pure math, no three.js.
  */
-import { TERRAIN_CELL, TERRAIN_HEIGHT_CAP, TERRAIN_MIN_HEIGHT, TERRAIN_N, terrainCol, terrainRow } from '../duck/terrain-spec.js';
+import { TERRAIN_HEIGHT_CAP, TERRAIN_MIN_HEIGHT, TERRAIN_N, terrainCell, terrainCol, terrainRow } from '../duck/terrain-spec.js';
 
-const STEP = TERRAIN_CELL / 2;
 const MAX_STEPS = 400; // 8 m at 2 cm: the whole field
 
 /**
@@ -26,6 +25,7 @@ export function rasteriseMeshHeights(
   heights: Float32Array,
 ): number {
   const m = toStage;
+  const step = terrainCell() / 2; // half a cell, at the cell size in use
   const p = new Float64Array(9); // the triangle's corners in the stage frame
   const vertices = Math.floor(positions.length / 3);
   const count = index ? index.length - (index.length % 3) : vertices - (vertices % 3);
@@ -52,7 +52,7 @@ export function rasteriseMeshHeights(
       Math.hypot(p[6] - p[3], p[7] - p[4], p[8] - p[5]),
       Math.hypot(p[0] - p[6], p[1] - p[7], p[2] - p[8]),
     );
-    const n = Math.min(MAX_STEPS, Math.max(1, Math.ceil(edge / STEP)));
+    const n = Math.min(MAX_STEPS, Math.max(1, Math.ceil(edge / step)));
     for (let i = 0; i <= n; i++) {
       for (let j = 0; j <= n - i; j++) {
         const u = i / n;

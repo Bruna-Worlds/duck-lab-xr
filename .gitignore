@@ -67,6 +67,9 @@ venv/
 opencode.json
 .claude/settings.local.json
 
+# NVIDIA's WebRTC streaming library, fetched for local use by tools/isaac/fetch-streaming-library.mjs (NVIDIA licence: never commit or deploy)
+tools/isaac/vendor/
+
 # Dev-only models and test photos (licence unclear; never deploy)
 public/models/dev-only/
 

@@ -115,8 +115,12 @@ async function selectPack(id) {
   const m = state.map;
   $('scene-title').textContent = `${m.playground || 'Playground'} | ${m.reason} | ended ${m.end.mode} | ${m.pieces.length} pieces${m.terrain ? ' | sensed terrain' : ''}`;
   $('replay-ship').disabled = false;
+  $('isaac-run').disabled = false;
   updateReplaySelect();
+  isaac.drawn = null;
+  isaac.drawnKey = '';
   drawMap();
+  pollIsaac(true);
   if (viewer) {
     viewer.setScene(m);
     await viewer.setReplay('ship', null);
@@ -246,6 +250,14 @@ function drawMap() {
   };
   drawPath(state.replays.ship, COLORS.orange);
   drawPath(state.replays.rel, COLORS.mint);
+  // The Isaac Sim test case: MuJoCo's run (the ghost) dashed orange, PhysX's sky blue.
+  if (isaac.drawn) {
+    ctx.save();
+    ctx.setLineDash([10, 8]);
+    drawPath({ path: isaac.drawn.mujoco }, COLORS.orange);
+    ctx.restore();
+    drawPath({ path: isaac.drawn.path, fell: isaac.drawn.fell }, COLORS.sky);
+  }
   // Start (where the pack begins) and where the headset ended.
   ctx.save();
   ctx.translate(X(m.start.x), Y(m.start.y));
@@ -360,40 +372,283 @@ async function runReplay(which) {
 $('replay-ship').addEventListener('click', () => runReplay('ship'));
 $('replay-rel').addEventListener('click', () => runReplay('rel'));
 
+// --- Isaac Sim test case ---------------------------------------------------------------------
+// The pack under PhysX in the streaming Isaac Sim on this PC, beside an orange ghost replaying
+// MuJoCo's run of it (tools/isaac, the bridge's /ducklab/testcase).
+const isaac = { timer: 0, status: null, bridge: null, watching: false, asked: false, drawn: null, drawnKey: '' };
+
+async function runIsaac(id) {
+  if (!id) return;
+  const release = $('isaac-trained').checked ? $('replay-release').value || null : null;
+  $('isaac-run').disabled = true;
+  $('isaac-result').textContent = "Exporting the pack and MuJoCo's run of it...";
+  try {
+    const r = await api(`/api/packs/${encodeURIComponent(id)}/isaac`, { release });
+    isaac.bridge = r.bridge;
+    $('isaac-result').textContent = 'Building it in Isaac Sim...';
+    // The stream in this page from the start, unless a Duck Lab XR page holds it (it shows there).
+    if (!isaac.watching && !isaac.status?.appConnected) watchIsaac(true);
+    pollIsaac(true);
+  } catch (err) {
+    $('isaac-result').textContent = err.message;
+  } finally {
+    $('isaac-run').disabled = !state.selected;
+  }
+}
+
+/** Polls the test case: quickly while it builds or runs, then every few seconds. */
+function pollIsaac(now = false) {
+  clearTimeout(isaac.timer);
+  const tick = async () => {
+    let s;
+    try {
+      s = await api('/api/isaac');
+    } catch (err) {
+      s = { available: false, error: err.message };
+    }
+    showIsaac(s);
+    const busy = s.available && ['building', 'waiting', 'running'].includes(s.testcase?.state);
+    isaac.timer = setTimeout(tick, busy ? 500 : s.available ? 4000 : 10000);
+  };
+  isaac.timer = setTimeout(tick, now ? 0 : 4000);
+}
+
+function showIsaac(s) {
+  isaac.status = s;
+  const tc = s.testcase;
+  if (s.bridge) isaac.bridge = s.bridge;
+  $('isaac-controls').hidden = !s.available || !tc || tc.state === 'idle';
+  $('isaac-again').disabled = tc?.state !== 'done' && tc?.state !== 'running';
+  if (!s.available) {
+    $('isaac-result').textContent = isaac.asked ? s.error : '';
+    return;
+  }
+  const where = s.appConnected && !isaac.watching ? " The stream is in Duck Lab XR's ISAAC SIM window (Watch here takes it)." : '';
+  const sum = tc?.summary;
+  const fell = (t) => (t === null || t === undefined ? 'stayed up' : `<span style="color:${COLORS.berry}">tipped at ${t.toFixed(1)} s</span>`);
+  if (!tc || tc.state === 'idle') $('isaac-result').textContent = '';
+  else if (tc.state === 'error') $('isaac-result').textContent = `Isaac Sim: ${tc.error}`;
+  else if (tc.state === 'building') $('isaac-result').textContent = `Building ${tc.title ?? 'the pack'} in Isaac Sim: Pip through the MJCF importer, the colliders, the ghost...`;
+  else if (tc.state === 'waiting') $('isaac-result').textContent = 'Built. Waiting for Isaac Sim to draw it (the first time, RTX compiles the new materials: up to a minute)...' + where;
+  else if (sum) {
+    const head = tc.state === 'running' ? `Running in Isaac Sim: ${tc.t.toFixed(1)} of ${tc.duration.toFixed(1)} s` : `Done in Isaac Sim (${esc(tc.title ?? '')})`;
+    $('isaac-result').innerHTML =
+      `${head}.${where}<br>` +
+      `<b style="color:${COLORS.sky}">PhysX</b>: ${sum.walkedM.toFixed(2)} m walked, turned ${sum.turnedDeg} deg, ${fell(sum.fellAt)}<br>` +
+      (sum.mujocoWalkedM !== undefined
+        ? `<b style="color:${COLORS.orange}">MuJoCo (ghost)</b>: ${sum.mujocoWalkedM.toFixed(2)} m walked, turned ${sum.mujocoTurnedDeg} deg, ${fell(sum.mujocoFellAt)}; ${Math.round(sum.apartM * 100)} cm apart now`
+        : '');
+  } else $('isaac-result').textContent = `Starting in Isaac Sim...${where}`;
+  // Both paths on the map, for the pack they belong to.
+  const id = tc?.title ? tc.title.split(',')[0] : null;
+  const paths = id && id === state.selected && tc.path ? { path: tc.path, mujoco: tc.mujocoPath ?? [], fell: sum?.fellAt != null } : null;
+  const key = paths ? `${paths.path.length}:${paths.fell}` : '';
+  if (key !== isaac.drawnKey) {
+    isaac.drawnKey = key;
+    isaac.drawn = paths;
+    drawMap();
+  }
+}
+
+$('isaac-run').addEventListener('click', () => {
+  isaac.asked = true;
+  void runIsaac(state.selected);
+});
+$('isaac-again').addEventListener('click', async () => {
+  await api('/api/isaac/again', {}).catch((err) => ($('isaac-result').textContent = err.message));
+  pollIsaac(true);
+});
+$('isaac-stop').addEventListener('click', async () => {
+  await api('/api/isaac/stop', {}).catch((err) => ($('isaac-result').textContent = err.message));
+  watchIsaac(false);
+  isaac.drawn = null;
+  drawMap();
+  pollIsaac(true);
+});
+$('isaac-watch').addEventListener('click', () => watchIsaac(!isaac.watching));
+
+/** Isaac Sim's stream in this page (it streams to one page at a time: this takes it). */
+function watchIsaac(on) {
+  isaac.watching = on;
+  const frame = $('isaac-stream');
+  const [server, port] = (isaac.bridge ?? '127.0.0.1:8211').split(':');
+  frame.hidden = !on;
+  frame.src = on ? `/isaac/player.html?server=${server}&port=${port}` : 'about:blank';
+  $('isaac-watch').textContent = on ? 'Hide stream' : 'Watch here';
+}
+pollIsaac(true);
+
 // --- Training -------------------------------------------------------------------------------
 function updateTrainButtons() {
   const n = state.checked.size;
   const running = state.job?.state === 'running';
   $('train-count').textContent = `${n} pack${n === 1 ? '' : 's'} selected`;
-  $('train').disabled = !n || running;
+  $('train').disabled = !n || running || (currentTrainer() ? !currentTrainer().ready : false);
   $('stop').disabled = !running;
   $('export').disabled = !n && !$('export-motions').checked;
   const chip = $('chip-trainer');
-  chip.textContent = running ? `Trainer: iteration ${state.job.iterations.length}/${state.job.of ?? '?'}` : 'Trainer: idle';
+  const done = state.job?.trainer && state.job.trainer !== 'es' ? state.job.progress ?? 0 : (state.job?.iterations.length ?? 0);
+  chip.textContent = running ? `Trainer: iteration ${done}/${state.job.of ?? '?'}` : 'Trainer: idle';
   chip.className = `chip${running ? ' busy' : ''}`;
+  if (typeof updateCrossCheckButton === 'function' && state.releases) updateCrossCheckButton();
   link?.setTrainerLine(running ? `Training: iteration ${state.job.iterations.length} of ${state.job.of ?? '?'}.` : '');
 }
 
 $('train').addEventListener('click', async () => {
-  const body = {
-    packs: [...state.checked],
-    name: $('t-name').value,
-    iterations: Number($('t-iterations').value),
-    pairs: Number($('t-pairs').value),
-    steps: Number($('t-steps').value),
-    publish: $('t-publish').checked,
-  };
+  const trainer = currentTrainer();
+  const builtin = trainer?.kind !== 'command';
+  const body = builtin
+    ? {
+        trainer: trainer?.id ?? 'es',
+        packs: [...state.checked],
+        name: $('t-name').value,
+        iterations: Number($('t-iterations').value),
+        pairs: Number($('t-pairs').value),
+        steps: Number($('t-steps').value),
+        randomize: $('t-randomize').value,
+        publish: $('t-publish').checked,
+      }
+    : {
+        trainer: trainer.id,
+        packs: [...state.checked],
+        name: $('t-oname').value,
+        envs: Number($('t-envs').value),
+        iterations: Number($('t-oiterations').value),
+      };
   try {
     const job = await api('/api/train', body);
-    state.job = { id: job.id, state: 'running', iterations: [], evals: [], of: body.iterations, log: [] };
+    state.job = { id: job.id, state: 'running', iterations: [], evals: [], metrics: [], of: body.iterations, log: [], trainer: body.trainer, packs: body.packs, progress: 0 };
+    state.gateRows = [];
     $('train-log').innerHTML = '';
-    log(`Training on ${body.packs.length} pack(s): ${body.iterations} iterations of ${body.pairs * 2} candidates.`);
+    log(
+      builtin
+        ? `Training on ${body.packs.length} pack(s): ${body.iterations} iterations of ${body.pairs * 2} candidates, ${body.randomize === 'pollen' ? "Pollen and NVIDIA's randomisation" : 'shoves only'}.`
+        : `${esc(trainer.title)} on ${body.packs.length} pack(s): ${body.envs} robots, ${body.iterations} iterations.`,
+    );
     updateTrainButtons();
     drawChart();
   } catch (err) {
     log(err.message, 'bad');
   }
 });
+
+// --- Trainers ---------------------------------------------------------------------------------
+function currentTrainer() {
+  return (state.trainers ?? []).find((t) => t.id === $('t-trainer').value) ?? null;
+}
+
+function renderTrainers() {
+  const list = state.trainers ?? [];
+  const sel = $('t-trainer');
+  const keep = sel.value;
+  sel.innerHTML = list.map((t) => `<option value="${esc(t.id)}">${esc(t.title)}${t.ready ? '' : ' (not set up here)'}</option>`).join('');
+  if (list.some((t) => t.id === keep)) sel.value = keep;
+  showTrainer();
+}
+
+function showTrainer() {
+  const t = currentTrainer();
+  const builtin = !t || t.kind !== 'command';
+  $('t-about').textContent = t?.about ?? '';
+  $('t-es').hidden = !builtin;
+  $('t-outside').hidden = builtin;
+  $('t-publish-row').hidden = !builtin;
+  $('t-install').hidden = !t || t.ready;
+  $('t-install').textContent = t && !t.ready ? `Not set up on this PC yet: ${t.install ?? ''}` : '';
+  updateTrainButtons();
+}
+$('t-trainer').addEventListener('change', showTrainer);
+
+// --- Cross-check ---------------------------------------------------------------------------------
+const ENGINE_TITLES = { mujoco: 'MuJoCo', pollen: 'MuJoCo + randomisation', newton: 'Newton', 'newton-nc': 'Newton (its contacts)', physx: 'PhysX' };
+/** Column heads for the table, which shares a narrow card (the full names are their tooltips). */
+const ENGINE_SHORT = { mujoco: 'MuJoCo', pollen: 'Randomised', newton: 'Newton', 'newton-nc': 'Newton contacts', physx: 'PhysX' };
+
+function renderCrossCheckChoices() {
+  const releases = state.releases.releases ?? [];
+  const brains = [{ id: 'shipped', name: 'shipped' }, ...releases.map((r) => ({ id: r.id, name: r.name }))];
+  const picked = new Set(state.ccBrains ?? ['shipped', ...releases.slice(0, 1).map((r) => r.id)]);
+  $('cc-brains').innerHTML = brains
+    .map((b) => `<label class="check"><input type="checkbox" data-brain="${esc(b.id)}" ${picked.has(b.id) ? 'checked' : ''} />${esc(b.name)}</label>`)
+    .join('');
+  const engines = state.engines ?? Object.keys(ENGINE_TITLES);
+  const on = new Set(state.ccEngines ?? ['mujoco', 'pollen', 'newton']);
+  $('cc-engines').innerHTML = engines
+    .map((e) => `<label class="check"><input type="checkbox" data-engine="${esc(e)}" ${on.has(e) ? 'checked' : ''} />${esc(ENGINE_TITLES[e] ?? e)}</label>`)
+    .join('');
+  updateCrossCheckButton();
+}
+
+function updateCrossCheckButton() {
+  const running = state.crossJob?.state === 'running';
+  $('cc-run').disabled = running || !state.checked.size;
+  $('cc-run').textContent = running ? 'Cross-checking...' : `Cross-check on ${state.checked.size} selected`;
+}
+
+$('cc-brains').addEventListener('change', () => {
+  state.ccBrains = [...document.querySelectorAll('#cc-brains [data-brain]')].filter((i) => i.checked).map((i) => i.dataset.brain);
+});
+$('cc-engines').addEventListener('change', () => {
+  state.ccEngines = [...document.querySelectorAll('#cc-engines [data-engine]')].filter((i) => i.checked).map((i) => i.dataset.engine);
+});
+
+$('cc-run').addEventListener('click', async () => {
+  const brains = [...document.querySelectorAll('#cc-brains [data-brain]')].filter((i) => i.checked).map((i) => i.dataset.brain);
+  const engines = [...document.querySelectorAll('#cc-engines [data-engine]')].filter((i) => i.checked).map((i) => i.dataset.engine);
+  try {
+    state.crossJob = await api('/api/crosscheck', { packs: [...state.checked], brains, engines, seeds: 8 });
+    state.crossRows = [];
+    $('cc-state').textContent = 'running';
+    renderCrossTable({ brains, engines, results: [] });
+  } catch (err) {
+    $('cc-table').textContent = err.message;
+  }
+  updateCrossCheckButton();
+});
+
+/** Brains down, engines across: falls and distance (randomised MuJoCo: the fall rate over its seeds). */
+function renderCrossTable(report) {
+  const rows = report.results ?? [];
+  const brains = report.brains ?? [...new Set(rows.map((r) => r.brain))];
+  const engines = (report.engines ?? [...new Set(rows.map((r) => r.engine))]).filter((e) => rows.some((r) => r.engine === e) || state.crossJob?.state === 'running');
+  const name = (b) => (b === 'shipped' ? 'shipped' : ((state.releases.releases ?? []).find((r) => r.id === b)?.name ?? b));
+  const cell = (brain, engine) => {
+    const list = rows.filter((r) => r.brain === brain && r.engine === engine);
+    if (!list.length) return '<td>...</td>';
+    if (engine === 'pollen') {
+      const rate = list.reduce((a, r) => a + r.fallRate, 0) / list.length;
+      const dist = list.reduce((a, r) => a + r.meanDistanceM, 0) / list.length;
+      return `<td class="${rate > 0.25 ? 'fell' : 'up'}">${pct(rate)} fell<br>${dist.toFixed(2)} m</td>`;
+    }
+    const fell = list.filter((r) => r.fellAt !== null).length;
+    const walked = list.reduce((a, r) => a + r.walkedM, 0) / list.length;
+    return `<td class="${fell ? 'fell' : 'up'}">${fell}/${list.length} fell<br>${walked.toFixed(2)} m</td>`;
+  };
+  $('cc-table').innerHTML = rows.length || state.crossJob?.state === 'running'
+    ? `<table class="cc-table"><tr><th>Brain</th>${engines.map((e) => `<th title="${esc(ENGINE_TITLES[e] ?? e)}">${esc(ENGINE_SHORT[e] ?? e)}</th>`).join('')}</tr>${brains
+        .map((b) => `<tr><td>${esc(name(b))}</td>${engines.map((e) => cell(b, e)).join('')}</tr>`)
+        .join('')}</table><div class="meta">${(report.packs ?? state.crossJob?.packs ?? []).length} pack(s)${report.at ? `, ${esc(ago(report.at))}` : ''}</div>`
+    : '';
+}
+
+function onCrossCheck(msg) {
+  if (!state.crossJob || state.crossJob.id !== msg.id) state.crossJob = { id: msg.id, state: 'running', rows: [] };
+  if (msg.event?.type === 'result') {
+    state.crossJob.rows = [...(state.crossJob.rows ?? []), msg.event];
+    renderCrossTable({ brains: state.crossJob.brains, engines: state.crossJob.engines, packs: state.crossJob.packs, results: state.crossJob.rows });
+  }
+  if (msg.event?.type === 'pack') $('cc-state').textContent = `on ${msg.event.pack}`;
+  if (msg.state === 'done') {
+    state.crossJob.state = 'done';
+    $('cc-state').textContent = 'done';
+    renderCrossTable(msg.report);
+  }
+  if (msg.state === 'failed') {
+    state.crossJob.state = 'failed';
+    $('cc-state').textContent = `failed: ${msg.error}`;
+  }
+  updateCrossCheckButton();
+}
 
 $('stop').addEventListener('click', () => {
   if (state.job?.id) void api(`/api/jobs/${state.job.id}/stop`, {});
@@ -403,15 +658,33 @@ function log(text, cls = '') {
   const line = document.createElement('div');
   if (cls) line.className = cls;
   line.innerHTML = text;
-  $('train-log').prepend(line);
+  const box = $('train-log');
+  box.prepend(line);
+  while (box.childElementCount > 300) box.lastElementChild.remove();
 }
 
 function onJob(msg) {
-  if (!state.job || state.job.id !== msg.id) state.job = { id: msg.id, state: 'running', iterations: [], evals: [], of: null };
+  if (!state.job || state.job.id !== msg.id) state.job = { id: msg.id, state: 'running', iterations: [], evals: [], metrics: [], of: null };
   const job = state.job;
   if (msg.event) {
     const e = msg.event;
     if (e.type === 'status') log(esc(e.message));
+    if (e.type === 'log') log(`<span class="meta">${esc(e.line)}</span>`);
+    if (e.type === 'progress') {
+      job.of = e.of;
+      job.progress = e.iteration;
+    }
+    if (e.type === 'metric') (job.metrics ??= []).push(e);
+    if (e.type === 'crosscheck' && e.kind === 'result') {
+      const what = e.fallRate !== undefined ? `${pct(e.fallRate)} of ${e.seeds} randomised runs fell` : `${e.walkedM.toFixed(2)} m, ${e.fellAt === null ? 'stayed up' : `tipped at ${e.fellAt.toFixed(1)} s`}`;
+      log(`<span class="meta">cross-check ${esc(ENGINE_TITLES[e.engine] ?? e.engine)}, ${esc(e.brain === 'shipped' ? 'shipped' : 'new brain')}, ${esc(e.pack)}: ${what}</span>`);
+      // The new brain's gate check fills the Cross-check card as it goes.
+      state.gateRows = [...(state.gateRows ?? []), { ...e, type: 'result' }];
+      if (state.crossJob?.state !== 'running') {
+        $('cc-state').textContent = 'checking the new brain';
+        renderCrossTable({ results: state.gateRows, packs: state.job.packs ?? [] });
+      }
+    }
     if (e.type === 'iteration') {
       job.of = e.of;
       job.iterations.push(e);
@@ -422,7 +695,13 @@ function onJob(msg) {
       log(`<b>${esc(e.label)}</b>: falls ${pct(m.fallRate)}, ${m.meanDistance.toFixed(2)} m, return ${m.meanReturn.toFixed(2)}${e.flat ? `; plain floor falls ${pct(e.flat.fallRate)}` : ''}`);
     }
   }
-  if (msg.state === 'done') {
+  if (msg.state === 'done' && !msg.result?.summary) {
+    // An outside trainer: its release, and how it fared in the cross-check.
+    job.state = 'done';
+    if (state.gateRows?.length && state.crossJob?.state !== 'running') $('cc-state').textContent = 'the new brain against the shipped one';
+    const rel = msg.result?.release;
+    log(rel ? `Trained: release <code>${esc(rel.id)}</code>. Send it to the headset from Releases once the cross-check looks right.` : 'Finished without a brain.', rel ? 'good' : 'bad');
+  } else if (msg.state === 'done') {
     job.state = 'done';
     const s = msg.result.summary;
     const rel = msg.result.release;
@@ -457,6 +736,7 @@ function drawChart() {
   const evals = (state.job?.evals ?? []).filter((e) => e.iteration > 0 || e.label === 'baseline');
   ctx.font = '22px DuckBebas, sans-serif';
   ctx.fillStyle = COLORS.dim;
+  if (state.job?.trainer && state.job.trainer !== 'es') return drawOutsideChart(ctx, W, H);
   if (!its.length && !evals.length) {
     ctx.textAlign = 'center';
     ctx.fillText('TRAINING PROGRESS SHOWS HERE', W / 2, H / 2);
@@ -507,6 +787,56 @@ function drawChart() {
   ctx.fillText(`ITERATION ${its.length}/${n}`, (left + right) / 2, H - 8);
 }
 
+/** An outside trainer (rsl_rl): mean reward and episode length per iteration, each on its own scale. */
+function drawOutsideChart(ctx, W, H) {
+  const job = state.job;
+  const ms = (job.metrics ?? []).filter((m) => Number.isFinite(m.reward));
+  const n = Math.max(job.of ?? 1, 1);
+  const left = 44;
+  const right = W - 44;
+  const top = 34;
+  const bottom = H - 30;
+  const X = (i) => left + ((right - left) * i) / n;
+  ctx.strokeStyle = 'rgba(255, 244, 220, 0.1)';
+  ctx.lineWidth = 1;
+  for (const f of [0, 0.25, 0.5, 0.75, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(left, bottom - (bottom - top) * f);
+    ctx.lineTo(right, bottom - (bottom - top) * f);
+    ctx.stroke();
+  }
+  ctx.textAlign = 'left';
+  ctx.fillStyle = COLORS.yellow;
+  ctx.fillText('MEAN REWARD', left, 22);
+  ctx.fillStyle = COLORS.mint;
+  ctx.fillText('EPISODE LENGTH', left + 120, 22);
+  const series = (key, color, width) => {
+    const vals = ms.map((m) => m[key]).filter(Number.isFinite);
+    if (!vals.length) return null;
+    const lo = Math.min(...vals);
+    const hi = Math.max(...vals);
+    const Y = (v) => bottom - ((bottom - top) * (v - lo)) / (hi - lo || 1);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    ms.forEach((m, i) => (i ? ctx.lineTo(X(m.iteration), Y(m[key])) : ctx.moveTo(X(m.iteration), Y(m[key]))));
+    ctx.stroke();
+    return vals[vals.length - 1];
+  };
+  series('length', COLORS.mint, 2);
+  const reward = series('reward', COLORS.yellow, 3);
+  const last = ms[ms.length - 1];
+  ctx.font = '18px DuckBebas, sans-serif';
+  ctx.fillStyle = COLORS.dim;
+  ctx.textAlign = 'center';
+  const done = job.progress ?? last?.iteration ?? 0;
+  ctx.fillText(
+    ms.length ? `ITERATION ${done}/${n}  |  REWARD ${reward.toFixed(1)}  |  EPISODES ${Math.round(last.length)} STEPS` : job.state === 'running' ? 'STARTING THE TRAINER...' : 'TRAINING PROGRESS SHOWS HERE',
+    W / 2,
+    ms.length ? H - 8 : H / 2,
+  );
+}
+
 // --- Releases -------------------------------------------------------------------------------
 function renderReleases() {
   const box = $('releases');
@@ -528,8 +858,11 @@ function renderReleases() {
             ? `<button class="btn btn-yellow" data-deactivate>Offered</button>`
             : `<button class="btn" data-activate="${esc(r.id)}">Send to headset</button>`
         }</div>
-        <div class="nums">falls <b>${pct(r.baselineFallRate)} to ${pct(r.fallRate)}</b> on ${r.packs} pack(s) | walk ${esc(r.walkHash)} from ${esc(r.baseHash)} | ${esc(ago(r.createdAt))}</div>
-        <div class="nums">${esc(r.trainer)} | <code>${esc(r.id)}</code></div>
+        <div class="nums">${
+          // An outside trainer reports no falls on the packs: its numbers are the cross-check's.
+          r.fallRate === null || r.fallRate === undefined ? `${r.packs} pack(s) given to the trainer` : `falls <b${worse(r.fallRate, r.baselineFallRate)}>${pct(r.baselineFallRate)} to ${pct(r.fallRate)}</b> on ${r.packs} pack(s)`
+        } | walk ${esc(r.walkHash)} from ${esc(r.baseHash)} | ${esc(ago(r.createdAt))}</div>
+        <div class="nums">${esc(r.trainer)} | <code>${esc(r.id)}</code></div>${crossLine(r)}
         <div class="hub">${
           r.hubRepo
             ? `<span>On Hugging Face: <a href="https://huggingface.co/${esc(r.hubRepo)}" target="_blank" rel="noopener">${esc(r.hubRepo)}</a>, ready to flash to a real duck</span>`
@@ -539,6 +872,24 @@ function renderReleases() {
     )
     .join('');
   updateReplaySelect();
+  renderCrossCheckChoices();
+}
+
+/** A class for a number that got worse than the shipped brain's (falls more): shown in berry, not mint. */
+const worse = (now, before) => (now > before + 1e-9 ? ' class="worse"' : '');
+
+/** A release's cross-check against the shipped brain, engine by engine. */
+function crossLine(r) {
+  if (!r.crossCheck?.length) return '';
+  const engines = [...new Set(r.crossCheck.map((x) => x.engine))];
+  const of = (brain, engine) => r.crossCheck.find((x) => x.engine === engine && x.brain === brain);
+  const parts = engines.map((e) => {
+    const a = of('shipped', e);
+    const b = of(r.id, e);
+    if (!a || !b) return '';
+    return `${esc(ENGINE_TITLES[e] ?? e)} ${pct(a.falls)} to <b${worse(b.falls, a.falls)}>${pct(b.falls)}</b> fell`;
+  });
+  return `<div class="nums">cross-check: ${parts.filter(Boolean).join(' | ')}</div>`;
 }
 
 /** The publish form (one, below the list, so a live re-render never eats what is typed). */
@@ -654,8 +1005,15 @@ function connect() {
     const fresh = new Set(state.packs.filter((p) => !before.has(p.id)).map((p) => p.id));
     renderPacks(fresh);
     if (fresh.size) $('chip-inbox').textContent = `Inbox: new pack ${ago(state.packs[0].at)}`;
+    // "New packs too": a pack the headset just sent goes straight to Isaac Sim.
+    const newest = state.packs.find((p) => fresh.has(p.id) && !p.error);
+    if (newest && $('isaac-auto').checked) {
+      isaac.asked = true;
+      void selectPack(newest.id).then(() => runIsaac(newest.id));
+    }
   });
   events.addEventListener('job', (e) => onJob(JSON.parse(e.data)));
+  events.addEventListener('crosscheck', (e) => onCrossCheck(JSON.parse(e.data)));
   events.addEventListener('releases', (e) => {
     state.releases = JSON.parse(e.data);
     renderReleases();
@@ -781,9 +1139,32 @@ async function start() {
   $('t-pairs').value = s.defaults.pairs;
   $('t-steps').value = s.defaults.steps;
   renderTargets(s.targets);
+  try {
+    const t = await api('/api/trainers');
+    state.trainers = t.trainers;
+    state.engines = t.engines;
+    renderTrainers();
+    const cc = await api('/api/crosscheck');
+    state.crossJob = cc.job;
+    if (cc.job?.state === 'running') renderCrossTable({ brains: cc.job.brains, engines: cc.job.engines, packs: cc.job.packs, results: cc.job.rows });
+    else if (cc.latest) renderCrossTable(cc.latest);
+  } catch {
+    // an older trainer engine: the fine-tune only
+  }
+  renderCrossCheckChoices();
   const running = s.jobs.find((j) => j.state === 'running');
   if (running) {
-    state.job = { id: running.id, state: 'running', iterations: [], evals: [], of: running.options.iterations };
+    state.job = { id: running.id, state: 'running', iterations: [], evals: [], metrics: [], of: running.options.iterations, trainer: running.trainer, packs: running.packs, progress: 0 };
+    // Show the card as it was started: its trainer and settings.
+    if ((state.trainers ?? []).some((t) => t.id === running.trainer)) {
+      $('t-trainer').value = running.trainer;
+      showTrainer();
+      if (running.trainer !== 'es') {
+        $('t-oname').value = running.options.name;
+        $('t-envs').value = running.options.envs;
+        $('t-oiterations').value = running.options.iterations;
+      }
+    }
     for (const event of running.events) onJob({ id: running.id, event });
   }
   renderPacks();

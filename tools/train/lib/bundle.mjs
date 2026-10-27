@@ -10,7 +10,7 @@
  *   job.json             duckdash.trainjob.v1: what to train, how it is scored
  *   <pack>/              one per test case (export.mjs): scene.xml (MuJoCo MJCF:
  *                        Pollen's Microduck, the course, the scanned room, the
- *                        terrain height field), assets/, terrain.bin, state.json
+ *                        terrain height field), assets/ (with terrain.bin), state.json
  *                        (start state + every recorded command), policies/ (ONNX),
  *                        and, for engines that do not read MJCF:
  *                        terrain.obj, obstacles.obj (Z up, metres, MuJoCo frame),
@@ -43,7 +43,7 @@ export const TARGETS = {
   mujoco: {
     title: 'MuJoCo, MJX, MuJoCo Playground',
     start: [
-      'Each test case folder is a MuJoCo scene: `scene.xml` (with `assets/` and `terrain.bin` beside it).',
+      'Each test case folder is a MuJoCo scene: `scene.xml` (with `assets/` beside it: the meshes and the height field `terrain.bin`).',
       '```python',
       'import mujoco, json',
       'm = mujoco.MjModel.from_xml_path("<pack>/scene.xml"); d = mujoco.MjData(m)',
@@ -59,7 +59,7 @@ export const TARGETS = {
     start: [
       "Pollen's `microduck_rl` trains the Microduck with PPO in mjlab (MuJoCo Warp). Use a test case as a training terrain:",
       '- the robot in `scene.xml` is Pollen\'s own `robot_allcollisions` MJCF, unchanged;',
-      '- add the `course_*` and `room_*` geoms and the `live-terrain` height field (`terrain.bin`) from `scene.xml` to your task\'s scene;',
+      '- add the `course_*` and `room_*` geoms and the `live-terrain` height field (`assets/terrain.bin`) from `scene.xml` to your task\'s scene;',
       '- start episodes from `state.json` `start` (qpos, qvel) and drive them with its recorded commands;',
       '- `job.json` says how the local trainer scores a run (falls, distance, command tracking) and where results go.',
       'A trained policy comes back as a release folder (`walk.onnx` and friends, same 61-in / 14-out convention): drop it in',
@@ -338,7 +338,7 @@ function startHere(target, packs, motionSets) {
     '- `job.json`: the training job (what to train, scoring, where results go)',
     '- `python/`: `duck_env.py` (Gymnasium), `train_ppo.py` (Stable-Baselines3), `replay.py`, `requirements.txt`',
     '',
-    'In each test case folder: `scene.xml` + `assets/` + `terrain.bin` (MuJoCo), `state.json` (start state and the recorded',
+    'In each test case folder: `scene.xml` + `assets/` (meshes and `terrain.bin`; MuJoCo), `state.json` (start state and the recorded',
     'commands, control convention), `policies/` (ONNX, 61 in, 14 out, 50 Hz), `terrain.obj` + `obstacles.obj` (meshes, Z up,',
     'metres), `trajectory.csv` (the moment replayed with the shipped brain).',
     '',

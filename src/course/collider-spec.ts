@@ -24,6 +24,8 @@ export interface ColliderSpec {
   quat?: [number, number, number, number];
   /** Sliding friction; MuJoCo's default is 1. */
   friction?: number;
+  /** A step the duck may climb onto (a mat, a dog bed): the autopilot plans across it, not round it. */
+  walkable?: boolean;
 }
 
 export const COLLIDERS_KEY = 'colliders';

@@ -26,13 +26,19 @@ The duck's name is Pip.
   at 50 Hz with Pollen's own trained policies (ONNX), all in the browser.
 - **Your room is the level.** Plane, mesh and depth sensing give the duck
   your floor, walls and furniture to walk on and bump into.
-- **Playgrounds.** Living Room Dash and Sneaker Alley (in your room, or in a
-  VR toy room), Backyard (VR) and Your Room (free roam in mixed reality).
+- **Playgrounds.** Living Room Dash, Sneaker Alley and Dog Bed (a 2 cm play
+  mat and a 3 cm dog bed to climb; in your room, or in a VR toy room),
+  Backyard (VR) and Your Room (free roam in mixed reality).
   Moves: kick, roll, sit, peck and bow. An editor lets you drag, turn, add
   and remove course pieces, keep your own board and share it as a link.
 - **Pip cam.** A panel shows what the duck's head camera sees: the room as
   its physics knows it (MOTION), or a camera view with every object in sight
-  labelled (VISION), plus sensor and motor details.
+  labelled (VISION), what the head's 8 x 8 distance sensor reads (DEPTH),
+  plus sensor and motor details.
+- **Pip drives itself.** The autopilot picks the targets; a path planner, a
+  depth brain (the head's 8 x 8 distance sensor) or a camera brain (the head
+  camera and that sensor) steers Pollen's own walking brain. The brains were
+  trained in Pollen's mjlab and in NVIDIA Isaac Lab 3.
 - **A trainer on your computer.** Falls and stuck moments go to the trainer
   as test cases. It replays them in MuJoCo, fine-tunes the walking policy on
   them in minutes on a CPU, and offers the new brain to the headset, which
@@ -90,7 +96,12 @@ On a phone or a desktop, the scoreboard, the menu and Pip cam each fold away
 with their minimize buttons. The menu has the moves (on a phone or a
 desktop), the playgrounds, the autopilot, Pip cam, the course editor
 (**EDIT**), **CONTROLS** (the how-to-play card), pairing with the trainer and
-the real duck. In the editor, point at a piece and hold the trigger (or the
+the real duck. In mixed reality it also has **ROOM DEPTH**, how much the
+headset's live depth shapes the duck's ground: **Off** (the room scan only),
+**Raw** (every depth point, the first version), **Filtered** (noise and
+smeared edges filtered out; the default) or **Fine** (filtered, 3 cm cells,
+and things only the depth sensor sees are slightly soft); the browser
+remembers the choice. In the editor, point at a piece and hold the trigger (or the
 mouse button) to slide it; the thumbstick (or Q / E) turns it and B (or
 Delete) removes it.
 
@@ -160,6 +171,46 @@ Gymnasium. Brains trained elsewhere come back as a release folder. How the
 trainer works, its command-line tools and the export formats:
 [tools/train/README.md](tools/train/README.md).
 
+### Live in Isaac Sim
+
+NVIDIA Isaac Sim can mirror a session as it happens: your room's colliders,
+the course, the terrain, Pip and the ball, posed every frame, drawn with
+RTX. Isaac Sim's viewport comes back into Duck Lab XR's desktop page over its
+WebRTC stream, in an ISAAC SIM window; with Isaac Sim 4.5 the session's data
+goes up that same WebRTC connection. The physics stays in Duck Lab XR's
+MuJoCo. Start Isaac Sim 4.5 or 2022.2 with the Duck Lab XR bridge
+(`powershell -File tools/isaac/start-isaac-sim.ps1`), then open Duck Lab XR
+with `?isaac` on the same computer. Setup, the messages and the limits:
+[tools/isaac/README.md](tools/isaac/README.md).
+
+It also runs test cases from the headset: a pack the headset sent, picked in
+the trainer and run in Isaac Sim with PhysX doing the physics, beside an
+orange ghost replaying MuJoCo's run of the same pack, live in the stream.
+Where the two Pips part is where the physics engines disagree.
+
+### Skills on top of the walker
+
+New skills start from Pollen's walking brain instead of from scratch. A
+step-up task in Pollen's microduck_rl teaches it to lift its feet onto
+terraces up to 4 cm (the edge of a dog bed); it is one of the trainer
+page's trainers, and mjlab films the crowd of ducks training. Navigation
+brains steer the walker from the head's sensors: one from the 8 x 8 distance
+sensor (mjlab), one from the head camera as well (NVIDIA Isaac Lab 3,
+learning from the first). How they were trained and how far they got:
+[tools/train/README.md](tools/train/README.md), section 10.
+
+### Other engines and other trainers
+
+The trainer's fine-tune randomises like Pollen's and NVIDIA's MicroDuck
+recipe (friction, mass, servos, delay, IMU, pushes). Its **Cross-check** card
+runs brains on packs in MuJoCo, MuJoCo with that randomisation, Newton (the
+GPU engine NVIDIA trained MicroDuck with, [tools/newton](tools/newton/README.md))
+and Isaac Sim's PhysX side by side, and every new release is cross-checked
+before it is offered. The **Trainer** picker hands packs to other trainers on
+this PC (Pollen's microduck_rl and its step-up task, Isaac Lab, your own) and takes their brains
+back as releases: [tools/train/README.md](tools/train/README.md), sections 8
+and 9.
+
 ## A real Microduck
 
 Duck Lab XR can drive a real Microduck and install a brain on it through
@@ -198,6 +249,7 @@ things do not work like a plain Vite project: `iwsdk.config.json`, not
 | `public/` | Models, the Microduck asset pack, Pollen's policies, scenes, UI panels (`ui/*.uikitml`), fonts and textures |
 | `tools/lab/` | The trainer engine and its page |
 | `tools/train/` | Fine-tuning, replay, releases, Hub publishing and export |
+| `tools/isaac/` | The Isaac Sim bridge extension, its launcher, a stand-in for tests, and packs under PhysX (`scenario/`) |
 | `tools/test/` | Scripted checks against the dev server, and stand-ins for Pollen's service and the Hub |
 | `tools/film/` | Recording the demo films |
 | `tools/assets/` | Asset pipeline (Poly Haven downloads, Google Scanned Objects conversion) |
@@ -216,12 +268,21 @@ then:
 ```sh
 bash tools/test/all.sh                   # every emulator check (about 20 min)
 bash tools/test/mr.sh tools/test/terrain-check.mjs  # depth sensing and the room scan as solid ground, in emulated mixed reality
+npx @iwsdk/cli browser run tools/test/depth-quality-check.mjs  # noisy depth with smeared edges: no hover, no ramp round objects, no bumps on open floor
+bash tools/test/mr.sh tools/test/depth-level-check.mjs  # depth levels: the duck stands and walks on a soft depth layer, the scan layer stays hard
+bash tools/test/depth-level-xr.sh        # the ROOM DEPTH chips in the headset menu switch the terrain and are remembered
 node tools/test/layout-check.mjs         # the 2D page: no overlapping panels at 13 window sizes, phones included
 node tools/test/orbit-check.mjs          # the 2D page: dragging the room turns the camera (mouse, wheel, finger)
 node tools/test/pair-check.mjs           # headset and trainer pair over WebRTC: test case up, brain down, reconnect
 node tools/test/views-check.mjs          # the desktop PLAY | TRAINER switch
 node tools/test/desktop-ui-check.mjs     # the how-to-play card and the folding menu
 node tools/test/export-check.mjs         # the trainer's export for other simulators
+node tools/test/depth-brain-check.mjs    # the depth brain drives the course (menu chip, Pip cam's DEPTH tab)
+node tools/test/camera-brain-check.mjs   # the camera brain drives the course from Pip's head camera
+node tools/test/dog-bed-check.mjs        # the Dog Bed's steps: solid, open to the planner; how far up Pip gets (POLICIES=<folder>)
+npx @iwsdk/cli browser run tools/test/isaac-link-check.mjs  # the Isaac Sim link, against a stand-in bridge
+npx @iwsdk/cli browser run tools/test/isaac-live-check.mjs  # the same against a running Isaac Sim (app open on ?isaac)
+node tools/test/isaac-testcase-check.mjs # a pack as a test case in a running Isaac Sim, from the trainer page (npm run lab)
 node tools/test/hub-publish-check.mjs    # publishing to a stand-in Hugging Face Hub
 node tools/test/trainer-start-check.mjs  # "Start the trainer" (with the engine stopped)
 ```
@@ -240,16 +301,28 @@ any build, `?duck=lite` loads a lighter duck mesh.
 bash tools/test/demo-e2e.sh                  # the real -> sim -> real film -> artifacts/video/e2e.mp4
 bash tools/film/stack/stack.sh               # headset on top, trainer page below, in sync -> artifacts/video/stack.mp4
 node tools/film/trailer/compose-trailer.mjs  # the 1080x1920 trailer -> artifacts/video/trailer.mp4
+node tools/film/trailer/fast-cut.mjs         # its 37 s fast cut -> artifacts/video/trailer-fast.mp4
 node tools/film/social/record-social.mjs   # live shots for the social cut (its own portrait browser)
 node tools/film/social/compose-social.mjs  # the 30 s social cut -> artifacts/video/social/duck-lab-xr-social.mp4
+node tools/film/isaac/record-isaac.mjs     # Duck Lab XR and Isaac Sim's stream in one take (Isaac Sim with the bridge running;
+                                           # for 4.5 start it with --/app/runLoops/main/rateLimitEnabled=true --/app/runLoops/main/rateLimitFrequency=30
+                                           # or it takes the GPU from the app: 12 fps instead of 52)
+node tools/film/brain/compose-camera-brain.mjs  # the camera brain film -> artifacts/video/brain/duck-camera-brain.mp4
+node tools/film/climb/record-climb.mjs     # the climbing film's app takes (TAKE=fail, then TAKE=try once a release is sent)
+node tools/film/climb/compose-climb.mjs    # the climbing film: a fall, the trainer page, the run, the new brain -> artifacts/video/climb/
+node tools/film/isaac/compose-isaac.mjs    # the Isaac Sim film -> artifacts/video/isaac/duck-lab-isaac-sim[-4.5].mp4 (32 s; 36 s with 4.5's how-it-works card)
 ```
 
 The films need the dev server and the trainer engine, and leave both as they
 found them. The trailer adds concept clips rendered in Blender (frames in
 `artifacts/video/concept/`, made outside this repository) and an original
-score synthesized in code. Recordings go to `artifacts/`, which is not
-committed. They need ffmpeg: set `FFMPEG`, or install `ffmpeg-static`
-(`npm install --no-save ffmpeg-static`).
+score synthesized in code. The fast cut plays the trailer's sections faster
+(the concept opening 2x, the Quest footage 1.5x, the rest 2.6x); `--music
+<file>` lays another soundtrack under it, and without it the score is written
+again to the shorter cut. With `FILM_LANG=zh`, compose-stack.mjs,
+compose-trailer.mjs and fast-cut.mjs make the Chinese versions (`-zh` files).
+Recordings go to `artifacts/`, which is not committed. They need ffmpeg: set
+`FFMPEG`, or install `ffmpeg-static` (`npm install --no-save ffmpeg-static`).
 
 ## Contributing
 

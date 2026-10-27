@@ -12,11 +12,13 @@
  */
 import { BALL_RADIUS, DEFAULT_POSE, JOINT_NAMES, TIMESTEP } from './duck-constants.js';
 import {
+  SCAN_GEOM,
+  SCAN_HFIELD,
   TERRAIN_BASE,
   TERRAIN_CENTER_X,
   TERRAIN_CENTER_Y,
   TERRAIN_GEOM,
-  TERRAIN_HALF,
+  TERRAIN_HALF_MAX,
   TERRAIN_HFIELD,
   TERRAIN_N,
   TERRAIN_SINK,
@@ -33,6 +35,8 @@ export interface PhysicsCollider {
   quat: [number, number, number, number];
   /** Sliding friction (MuJoCo default 1). */
   friction?: number;
+  /** A step the duck may climb onto: solid to the sim, open to the autopilot's planner. */
+  walkable?: boolean;
 }
 
 export interface PhysicsCourse {
@@ -121,29 +125,36 @@ export function buildPhysicsMjcf(
   addStatic('course', course.colliders);
   addStatic('room', room);
 
-  // The live terrain: a flat height field the depth sensor raises at runtime.
+  // The live terrain: two flat height fields raised at runtime, the depth
+  // sensor's (which can be made soft) and the room scan's (always hard),
+  // compiled at the largest extent so either can shrink to finer cells.
   if (terrain) {
     let asset = doc.querySelector('asset');
     if (!asset) {
       asset = element('asset', {});
       root.insertBefore(asset, worldbody);
     }
-    asset.appendChild(
-      element('hfield', {
-        name: TERRAIN_HFIELD,
-        nrow: String(TERRAIN_N),
-        ncol: String(TERRAIN_N),
-        size: `${TERRAIN_HALF} ${TERRAIN_HALF} ${TERRAIN_ZMAX} ${TERRAIN_BASE}`,
-      }),
-    );
-    worldbody.appendChild(
-      element('geom', {
-        name: TERRAIN_GEOM,
-        type: 'hfield',
-        hfield: TERRAIN_HFIELD,
-        pos: `${fmt(TERRAIN_CENTER_X)} ${fmt(TERRAIN_CENTER_Y)} ${fmt(-TERRAIN_SINK)}`,
-      }),
-    );
+    for (const [hfield, geom] of [
+      [TERRAIN_HFIELD, TERRAIN_GEOM],
+      [SCAN_HFIELD, SCAN_GEOM],
+    ]) {
+      asset.appendChild(
+        element('hfield', {
+          name: hfield,
+          nrow: String(TERRAIN_N),
+          ncol: String(TERRAIN_N),
+          size: `${TERRAIN_HALF_MAX} ${TERRAIN_HALF_MAX} ${TERRAIN_ZMAX} ${TERRAIN_BASE}`,
+        }),
+      );
+      worldbody.appendChild(
+        element('geom', {
+          name: geom,
+          type: 'hfield',
+          hfield,
+          pos: `${fmt(TERRAIN_CENTER_X)} ${fmt(TERRAIN_CENTER_Y)} ${fmt(-TERRAIN_SINK)}`,
+        }),
+      );
+    }
   }
 
   // Pollen's beach-ball feel: light, bouncy (solref damping < 1), and the

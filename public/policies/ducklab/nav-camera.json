@@ -1,0 +1,22 @@
+{
+  "version": "ducklab.nav-camera.v1",
+  "rateHz": 10,
+  "obs": "the depth brain's 200 inputs, as nav.json describes them",
+  "camera": {
+    "size": [
+      3,
+      36,
+      64
+    ],
+    "about": "the head camera's RGB, 0..1, channels first, row 0 the top; Pollen's head_camera frame on jaw_soft",
+    "verticalFovDeg": 45.0,
+    "focalMm": 14.25,
+    "apertureMm": 20.955
+  },
+  "output": {
+    "name": "twist",
+    "about": "target forward m/s (-0.1 to 0.25) and turn rad/s (+-1.0)"
+  },
+  "trainedIn": "NVIDIA Isaac Lab 3 (Newton, kit-less), distilled from the depth brain (Pollen's mjlab)",
+  "round": 399
+}
