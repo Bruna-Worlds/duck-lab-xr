@@ -18,7 +18,8 @@
  *
  *   node tools/film/climb/record-climb.mjs        (TAKE, SITE, RUN_S)
  *
- * Needs the dev server (https://localhost:8081). TAKE=fail wants no active
+ * Needs the dev server (https://localhost:8081). BRAIN=offer runs the take on the
+ * release the trainer offers (a brain tried earlier). TAKE=fail wants no active
  * release (the shipped brain); TAKE=try wants one (Send to headset).
  */
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -29,6 +30,8 @@ const SITE = process.env.SITE ?? 'https://localhost:8081/';
 const TAKE = process.env.TAKE ?? 'fail';
 const OUT = process.env.OUT ?? `artifacts/video/climb/${TAKE}`;
 const RUN_S = Number(process.env.RUN_S ?? (TAKE === 'fail' ? 45 : 60));
+/** BRAIN=offer: run the take on the release the trainer offers (a brain tried earlier), not the shipped one. */
+const BRAIN = process.env.BRAIN === 'offer';
 const W = 1920;
 const H = 1080;
 const FOVY = 52;
@@ -204,6 +207,18 @@ try {
   }, null, { timeout: 180000, polling: 500 });
   await page.evaluate(setCourse);
   await wait(1500);
+  if (BRAIN) {
+    // TAKE=fail on a brain tried earlier: the release the trainer offers, loaded before the take (no offer shown).
+    await page.waitForFunction(() => !!globalThis.__duck.policyInbox.offer, null, { timeout: 60000, polling: 500 });
+    const name = await page.evaluate(async () => {
+      const inbox = globalThis.__duck.policyInbox;
+      const name = inbox.offer.name;
+      await inbox.accept(inbox.offer, false);
+      return name;
+    });
+    console.log(`  on ${name}`);
+    await wait(1500);
+  }
   await page.evaluate(stage);
   // Wake Pip with a held W (real input), then let it settle.
   await page.keyboard.down('KeyW');

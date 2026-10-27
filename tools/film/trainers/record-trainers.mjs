@@ -24,7 +24,10 @@
  * Env: LAB (http://127.0.0.1:8790), TRAINER (microduck-rl), ENVS (4096),
  * ITERATIONS (3000), NAME (pollen-ppo-3000), PACKS (comma list), LAPSE (15 s),
  * SEND=1 (click Send to headset at the end, "!sent"). TRAINER=microduck-stepup
- * films the climbing task (tools/train/python/duckstep) with its own captions.
+ * films the climbing task (tools/train/python/duckstep), TRAINER=isaaclab-nav-camera
+ * the camera brain (tools/train/python/isaacnav), each with its own captions;
+ * both train on the first ticked test case, and the take shows the training
+ * ground it makes ("!ground").
  */
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { chromium } from 'playwright';
@@ -40,18 +43,31 @@ const SEND = process.env.SEND === '1';
 const SAY =
   TRAINER === 'microduck-stepup'
     ? {
-        packs: 'The test case from the headset arrives: tick it (the cross-check will replay it)',
+        packs: 'The test case from the headset arrives: tick it',
         picker: "Pick a trainer: the built-in fine-tune, NVIDIA's Isaac Lab 3, Pollen's microduck_rl, or its climbing task",
-        start: 'Climbing practice starts from the newest step-up brain: PPO in mjlab, terraces from 1.5 to 4 cm',
-        lapse: 'Rounds of training on an RTX 3070: the ducks learn to lift their feet onto higher steps',
+        ground: 'The test case becomes the training ground: its mat and dog bed, where Pip started and the way it went',
+        start: 'Climbing practice on copies of the test case: PPO in mjlab, continuing the brain that fell',
+        lapse: 'Rounds of training on an RTX 3070: three in five patches are the test case, the rest earlier terraces and flat floor',
         done: 'Done: the newest checkpoint, its normaliser inside, 61 numbers in, 14 out',
+        check: 'Before it goes anywhere: the test case replayed in three physics engines, old brain against new',
       }
-    : {
+    : TRAINER === 'isaaclab-nav-camera'
+      ? {
+          packs: 'The test case from the headset arrives: Pip stuck at the coffee table',
+          picker: "Pick a trainer: NVIDIA's Isaac Lab 3 for the camera brain",
+          ground: "The test case becomes the training ground: the table, the couches, Pip's start and goal, and what its camera saw",
+          start: 'Isaac Lab 3 on Newton: the camera brain learns from the depth brain in rooms rebuilt from the test case',
+          lapse: 'Rounds of training on an RTX 3070: 256 ducks, 7 rooms in 10 a copy of the test case',
+          done: 'Done: the camera brain exported, picture and sensor in, a turn and a speed out',
+          check: 'Before it goes anywhere: both camera brains drive in rooms rebuilt from the test case',
+        }
+      : {
         packs: 'Hard moments from the headset arrive as scenario packs: tick the ones to train on',
         picker: "Pick a trainer: the built-in fine-tune, NVIDIA's Isaac Lab 3, or Pollen's own microduck_rl",
         start: "Pollen's recipe starts: PPO on MuJoCo-Warp, with their servo model and randomisation",
         lapse: 'The hours of training, on an RTX 3070: the reward climbs as the ducks learn to walk',
         done: 'Done: the newest checkpoint is exported with its normaliser inside, 61 numbers in, 14 out',
+        check: 'Before it goes anywhere: cross-checked against the shipped brain in three physics engines',
       };
 // The six packs of the earlier cross-checks (tools/train/README.md section 8), so the numbers compare.
 const PACKS = (
@@ -124,8 +140,17 @@ async function scrollTo(selector, top = 12) {
 
 /** The film's cursor glides to the middle of an element (the page has none of its own in a screencast). */
 async function moveTo(selector, steps = 24) {
-  const box = await page.locator(selector).first().boundingBox();
+  let box = await page.locator(selector).first().boundingBox();
   if (!box) return null;
+  // Out of the view (a taller card above it): bring it in first, or the click lands on nothing.
+  if (box.y < 0 || box.y + box.height > VIEW.height) {
+    await page.evaluate(([sel, h]) => {
+      const el = document.querySelector(sel);
+      window.scrollTo({ top: el.getBoundingClientRect().top + scrollY - h * 0.6, behavior: 'smooth' });
+    }, [selector, VIEW.height]);
+    await wait(900);
+    box = await page.locator(selector).first().boundingBox();
+  }
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps });
   return box;
 }
@@ -256,6 +281,23 @@ try {
     await wait(id === TRAINER ? 1600 : 2300);
   }
 
+  // --- ground: the training ground the test case makes (trainers that train on it) ---
+  if (SAY.ground && (await page.locator('#t-ground').isVisible())) {
+    await page.mouse.move(VIEW.width * 0.95, VIEW.height * 0.5, { steps: 10 });
+    await scrollTo('#t-ground', 12);
+    await zoom('#t-ground', { pad: 10, card: false, to: '#t-ground' });
+    mark('!ground');
+    mark(SAY.ground);
+    await wait(6500);
+    // The settings and Train, below the ground: in the view.
+    await page.evaluate(() => {
+      const el = document.getElementById('t-outside');
+      window.scrollTo({ top: el.getBoundingClientRect().top + scrollY - 190, behavior: 'smooth' });
+    });
+    await wait(900);
+    await zoom('#t-outside', { pad: 12, card: false, to: '#train' });
+  }
+
   // --- settings, then Train ---
   mark(`${Number(ENVS).toLocaleString('en-US')} robots at once on the GPU, ${Number(ITERATIONS).toLocaleString('en-US')} rounds of practice`);
   for (const [sel, value] of [
@@ -311,7 +353,7 @@ try {
   for (;;) {
     await still();
     const log = await logText();
-    if (/export\.py|isaaclab play|onnx_single_file|cross-checking|Trained: release|Training failed|Finished without/i.test(log)) break;
+    if (/export\.py|isaaclab play|onnx_single_file|cross-checking|drive_check|Trained: release|Training failed|Finished without/i.test(log)) break;
     if (Date.now() - lastSave > 60000) {
       save();
       lastSave = Date.now();
@@ -329,7 +371,7 @@ try {
   await wait(1500);
   await scrollTo('#cc-run', 40);
   await zoom('#cc-run', { pad: 12, card: false, h: 300 });
-  mark('Before it goes anywhere: cross-checked against the shipped brain in three physics engines');
+  mark(SAY.check);
   mark('!fit 9');
   await page.waitForFunction(() => /Trained: release|Finished without|failed/i.test(document.getElementById('train-log')?.textContent ?? ''), null, { timeout: 1800000 }).catch(() => {});
   mark('!fit 8');

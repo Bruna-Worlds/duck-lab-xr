@@ -76,7 +76,8 @@ def main() -> None:
                 print(f"{k / fps:.0f} s", flush=True)
     writer.close()
     env.close()
-    print(f"FILM {args.out} ({steps} frames, {fps} fps, {args.envs} ducks, steps {play.HEIGHT * 100:.1f} cm)")
+    what = f"the test case ground {train.GROUND['pack']}" if train.GROUND else f"steps {play.HEIGHT * 100:.1f} cm"
+    print(f"FILM {args.out} ({steps} frames, {fps} fps, {args.envs} ducks, {what})")
 
 
 if __name__ == "__main__":

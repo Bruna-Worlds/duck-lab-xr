@@ -10,11 +10,13 @@
  * (the whole page) like record-trainers.mjs, for compose-trainers.mjs.
  *
  *   node tools/film/trainers/record-viewer.mjs <dir> <cwd> <program> [args...]
+ *   node tools/film/trainers/record-viewer.mjs <dir> - -      (a viewer already up: a trainer page's job)
  *
  * Env: URL (http://localhost:8080), SECONDS (24), CAPTION, WARM (s to wait once
  * the page is up, for the scene to load and the training to get going: 20),
  * SETUP (JavaScript run in the page before filming, to tidy it), and any env
- * the command needs (PYTHONUTF8 for Isaac Lab on a GBK console).
+ * the command needs (PYTHONUTF8 for Isaac Lab on a GBK console). ZOOM (wheel steps,
+ * negative: closer) moves the view in slowly while it films.
  */
 import { spawn } from 'node:child_process';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -31,15 +33,17 @@ mkdirSync(`${dir}/frames`, { recursive: true });
 const now = () => Date.now() / 1000;
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const child = spawn(program, args, { cwd, env: { ...process.env }, shell: process.platform === 'win32' });
+// '-': film a viewer something else started (a trainer page's job), and leave it running.
+const child = program && program !== '-' ? spawn(program, args, { cwd, env: { ...process.env }, shell: process.platform === 'win32' }) : null;
 let out = '';
 const take = (d) => {
   out += d;
   if (out.length > 200000) out = out.slice(-100000);
 };
-child.stdout.on('data', take);
-child.stderr.on('data', take);
-const stop = () => (process.platform === 'win32' && child.pid ? spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' }) : child.kill());
+child?.stdout.on('data', take);
+child?.stderr.on('data', take);
+const stop = () =>
+  !child ? null : process.platform === 'win32' && child.pid ? spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' }) : child.kill();
 
 const frames = [];
 const marks = [];
@@ -49,7 +53,7 @@ try {
   // The viewer's page comes up once the scene is built (the first run compiles GPU code first).
   const up = Date.now();
   for (;;) {
-    if (child.exitCode !== null) throw new Error(`${program} ended before its viewer came up:\n${out.slice(-2000)}`);
+    if (child && child.exitCode !== null) throw new Error(`${program} ended before its viewer came up:\n${out.slice(-2000)}`);
     const ok = await fetch(URL)
       .then((r) => r.ok)
       .catch(() => false);
@@ -92,7 +96,17 @@ try {
   });
   await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 88, everyNthFrame: 2 });
   marks.push(`${now().toFixed(3)} ${process.env.CAPTION ?? 'The trainer, in its own viewer'}`);
-  await wait(SECONDS * 1000);
+  // A slow move in while it films (ZOOM wheel steps over the take), or a still view.
+  const zoomTotal = Number(process.env.ZOOM ?? 0);
+  const ticks = Math.max(1, Math.round(SECONDS * 4));
+  for (let i = 0; i < ticks; i++) {
+    if (zoomTotal) {
+      await page.mouse.move(VIEW.width * 0.36, VIEW.height * 0.5);
+      await page.mouse.wheel(0, zoomTotal / ticks);
+      await page.mouse.move(VIEW.width - 6, VIEW.height - 6);
+    }
+    await wait(250);
+  }
   marks.push(`${now().toFixed(3)} !end`);
   await cdp.send('Page.stopScreencast');
 } finally {

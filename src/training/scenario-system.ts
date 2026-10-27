@@ -33,8 +33,10 @@ import {
   VEL_BACK,
   VEL_FWD,
 } from '../duck/duck-constants.js';
+import { DuckCamSystem, VISION_BACKDROP, VISION_FLOOR } from '../duck/duck-cam-system.js';
 import { DuckSystem } from '../duck/duck-system.js';
-import type { SimEvent, SimSnapshot, SimState } from '../duck/sim-protocol.js';
+import type { PhysicsCollider } from '../duck/mjcf.js';
+import { NAV_CAMERA_HEIGHT, NAV_CAMERA_WIDTH, type SimEvent, type SimSnapshot, type SimState } from '../duck/sim-protocol.js';
 import { LabLinkSystem } from '../link/lab-link-system.js';
 import { TERRAIN_N } from '../duck/terrain-spec.js';
 import { NavSystem } from '../nav/nav-system.js';
@@ -53,12 +55,26 @@ export const INBOX_PATH = '__duck/scenarios';
 const numbers = (a: ArrayLike<number>): number[] => Array.from(a, (v) => Number(v.toFixed(6)));
 
 function base64Float32(data: Float32Array): string {
-  const bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  return base64Bytes(new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
+}
+
+function base64Bytes(bytes: Uint8Array): string {
   let binary = '';
   for (let i = 0; i < bytes.length; i += 0x8000) {
     binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   }
   return btoa(binary);
+}
+
+function colliderJson(c: PhysicsCollider) {
+  return {
+    type: c.type,
+    size: numbers(c.size),
+    pos: numbers(c.pos),
+    quat: numbers(c.quat),
+    ...(c.walkable ? { walkable: true } : {}),
+    ...(c.label ? { label: c.label } : {}),
+  };
 }
 
 function stateJson(state: SimState) {
@@ -229,6 +245,25 @@ export class ScenarioSystem extends createSystem({}) {
         colliders: this.room?.physicsSummary ?? '',
         terrain: this.terrain?.summary ?? '',
       },
+      /** Who was steering and towards what (stage frame): a trainer rebuilds the moment around it. */
+      nav: this.nav?.testCaseInfo() ?? null,
+      /** Where the course stood in the room (world: its origin on the floor, the way it runs), to replay it there. */
+      stage: this.stagePlacement(),
+      /**
+       * What was in the way, in the stage's MuJoCo frame (x along the course, y left, z up; MuJoCo sizes):
+       * the course pieces as the sim has them (walkable: a step to climb), and in mixed reality the scan
+       * as a camera sees it (walls, and furniture as solid boxes). The trainer page builds the training
+       * ground from these (tools/train/lib/ground.mjs).
+       */
+      obstacles: {
+        course: sim.colliders.course.map(colliderJson),
+        room: (duck.stageEntity?.object3D ? this.room?.sceneVolumes(duck.stageEntity.object3D) ?? [] : []).map(colliderJson),
+      },
+      /**
+       * What the camera brain saw (while it drove): its last pictures, one a second, oldest first. A trainer
+       * paints the rebuilt room in their colours (tools/train/lib/ground.mjs).
+       */
+      camera: this.cameraPictures(),
       device: navigator.userAgent,
       /** The control convention the replay must follow (mirrors duck-constants.ts). */
       control: {
@@ -256,6 +291,36 @@ export class ScenarioSystem extends createSystem({}) {
       end: { ...stateJson(snapshot.end), mode: snapshot.mode, falls: snapshot.falls },
       events: this.events.map((e) => ({ ...e, t: Number(((e.t - performance.now()) / 1000).toFixed(2)) })),
       source: sim.sourceMjcf ? { mjcfBytes: sim.sourceMjcf.length } : null,
+    };
+  }
+
+  private stagePlacement(): { origin: number[]; right: number[] } | null {
+    const stage = this.duck?.stageEntity?.object3D;
+    if (!stage) return null;
+    stage.updateWorldMatrix(true, false);
+    const e = stage.matrixWorld.elements;
+    const len = Math.hypot(e[0], e[1], e[2]) || 1;
+    return { origin: numbers([e[12], e[13], e[14]]), right: numbers([e[0] / len, e[1] / len, e[2] / len]) };
+  }
+
+  private cameraPictures(): {
+    width: number;
+    height: number;
+    encoding: string;
+    frames: string[];
+    palette: { floor: number[]; backdrop: number[] };
+  } | null {
+    if (this.nav?.driver !== 'camera') return null;
+    const pictures = this.world.getSystem(DuckCamSystem)?.recentBrainPictures() ?? [];
+    if (!pictures.length) return null;
+    const rgb = (hex: number) => [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255].map((v) => +v.toFixed(3));
+    return {
+      width: NAV_CAMERA_WIDTH,
+      height: NAV_CAMERA_HEIGHT,
+      encoding: 'base64-rgb8 (row 0 the top)',
+      frames: pictures.map((p) => base64Bytes(p)),
+      // The room model's own colours in these pictures (sRGB 0..1): its floor and what shows behind everything.
+      palette: { floor: rgb(VISION_FLOOR), backdrop: rgb(VISION_BACKDROP) },
     };
   }
 

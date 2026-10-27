@@ -72,6 +72,11 @@ function indexEntry(id, manifest) {
     note: manifest.note ?? '',
     hubRepo: manifest.hub?.repo ?? null,
     crossCheck: manifest.crossCheck?.table ?? null,
+    // Which brains it trained: 'walk', 'nav-camera' (its .onnx files marked trained).
+    brains: Object.entries(manifest.files ?? {})
+      .filter(([name, f]) => f?.trained && name.endsWith('.onnx'))
+      .map(([name]) => name.slice(0, -'.onnx'.length)),
+    ground: manifest.ground ?? null,
   };
 }
 

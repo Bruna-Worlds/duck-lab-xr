@@ -34,8 +34,15 @@ export interface BrainRelease {
   note?: string;
   /** The public Hub repo it was published to (what a real duck downloads), if any. */
   hubRepo?: string | null;
-  /** The trainer page's cross-check: each brain's falls on the packs, per physics engine. */
-  crossCheck?: { brain: string; engine: string; falls: number; walkedM?: number }[] | null;
+  /**
+   * The trainer page's cross-check: each brain's falls on the packs, per physics engine; for a
+   * navigation brain, its drives in the test case's room (reached the goal, got stuck, fell, of tries).
+   */
+  crossCheck?: { brain: string; engine: string; falls: number; walkedM?: number; reached?: number; stuck?: number; tries?: number }[] | null;
+  /** Which brains it trained ('walk', 'nav-camera'); missing: the walking brain. */
+  brains?: string[];
+  /** The training ground it was built on, from the test case (tools/train/lib/ground.mjs). */
+  ground?: { pack: string; obstacles: number; copies?: number; summary: string } | null;
 }
 
 export interface BrainIndex {

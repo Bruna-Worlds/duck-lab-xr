@@ -21,6 +21,7 @@
 import { createSystem } from '@iwsdk/core';
 import { DuckSystem } from '../duck/duck-system.js';
 import type { BrainIndex, BrainRelease } from '../link/link-protocol.js';
+import { NavSystem } from '../nav/nav-system.js';
 
 const POLL_MS = 4000;
 const CHOSEN_KEY = 'duckdash.brain';
@@ -229,7 +230,12 @@ export class PolicyInboxSystem extends createSystem({}) {
     this.busy = true;
     this.status = `Loading ${release.name}...`;
     try {
-      const hash = await duck.usePolicies(this.folder(release.id));
+      const folder = this.folder(release.id);
+      const hash = await duck.usePolicies(folder);
+      // A camera brain release: the camera driver runs its brain, and drives (that is what was trained).
+      const camera = release.brains?.includes('nav-camera') ?? false;
+      duck.navCameraUrl = camera ? `${folder}nav-camera.onnx` : null;
+      if (camera) this.world.getSystem(NavSystem)?.setDriver('camera');
       this.current = release;
       this.offer = null;
       writeStore(CHOSEN_KEY, release.id);
@@ -256,6 +262,7 @@ export class PolicyInboxSystem extends createSystem({}) {
     this.busy = true;
     try {
       await duck.usePolicies(null);
+      duck.navCameraUrl = null;
       this.current = null;
       writeStore(CHOSEN_KEY, null);
       this.status = 'Back on the shipped policies';

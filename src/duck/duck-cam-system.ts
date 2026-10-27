@@ -53,6 +53,8 @@ import { DepthView } from './depth-view.js';
 import { NAV_CAMERA_CHANNELS, NAV_CAMERA_HEIGHT, NAV_CAMERA_WIDTH } from './sim-protocol.js';
 
 const RENDER_MS = 125; // 8 frames a second is plenty for a robot's-eye view
+const KEEP_PICTURES = 12; // the camera brain's pictures kept for a test case, one a second
+const KEEP_EVERY_MS = 1000;
 const WIDTH = 256;
 const HEIGHT = 192;
 /** The head link the camera rides in, by pack (Pollen's Microduck: yaw_roll_motion, after neck_pitch). */
@@ -63,8 +65,8 @@ const GRID_HALF = 4; // metres either side of the stage origin
 const GRID_STEP = 0.25;
 const CAM_ONLY_LAYER = 5;
 /** Vision view in mixed reality: a light room (ceiling-like backdrop) on a floor. */
-const VISION_BACKDROP = 0xd8d2c8;
-const VISION_FLOOR = 0xb49a7a;
+export const VISION_BACKDROP = 0xd8d2c8;
+export const VISION_FLOOR = 0xb49a7a;
 const COLLECT_MS = 2000; // look for new labelled objects this often (and on level or scan changes)
 const VIEW_KEY = 'duckdash.cam.view';
 // The camera brain's eye (tools/train/python/isaacnav): Pollen's head camera, 45 degrees tall, 16:9.
@@ -164,6 +166,11 @@ export class DuckCamSystem extends createSystem({
   private lastBrain = 0;
   /** Pictures sent to the camera brain so far (for tests). */
   brainFrames = 0;
+  /** The camera brain's last pictures, one a second (RGB, row 0 the top), for test cases: what Pip saw. */
+  private keptPictures: Uint8Array[] = [];
+  private keptAt: number[] = [];
+  private keptNext = 0;
+  private lastKept = 0;
 
   init(): void {
     this.duck = this.world.getSystem(DuckSystem);
@@ -190,6 +197,10 @@ export class DuckCamSystem extends createSystem({
     this.brainTarget.texture.name = 'duck-brain-cam';
     this.brainPixels = new Uint8Array(NAV_CAMERA_WIDTH * NAV_CAMERA_HEIGHT * 4);
     this.brainFrame = new Float32Array(NAV_CAMERA_CHANNELS * NAV_CAMERA_HEIGHT * NAV_CAMERA_WIDTH);
+    for (let i = 0; i < KEEP_PICTURES; i++) {
+      this.keptPictures.push(new Uint8Array(NAV_CAMERA_WIDTH * NAV_CAMERA_HEIGHT * 3));
+      this.keptAt.push(0);
+    }
     this.depth = new DepthView(WIDTH, HEIGHT);
     this.grid = floorGrid();
     this.backdrop = new Mesh(
@@ -450,6 +461,38 @@ export class DuckCamSystem extends createSystem({
     }
     this.duck?.sim?.sendCamera(out);
     this.brainFrames++;
+    // One picture a second kept for test cases.
+    const now = performance.now();
+    if (now - this.lastKept >= KEEP_EVERY_MS) {
+      this.lastKept = now;
+      const kept = this.keptPictures[this.keptNext];
+      for (let y = 0; y < h; y++) {
+        const row = (h - 1 - y) * w;
+        for (let x = 0; x < w; x++) {
+          const i = (y * w + x) * 4;
+          const o = (row + x) * 3;
+          kept[o] = px[i];
+          kept[o + 1] = px[i + 1];
+          kept[o + 2] = px[i + 2];
+        }
+      }
+      this.keptAt[this.keptNext] = now;
+      this.keptNext = (this.keptNext + 1) % KEEP_PICTURES;
+    }
+  }
+
+  /**
+   * The camera brain's pictures of the last `seconds` (oldest first; RGB bytes, row 0 the top,
+   * NAV_CAMERA_WIDTH x NAV_CAMERA_HEIGHT): what Pip saw, for a test case.
+   */
+  recentBrainPictures(seconds = 12): Uint8Array[] {
+    const now = performance.now();
+    const out: Uint8Array[] = [];
+    for (let k = 0; k < KEEP_PICTURES; k++) {
+      const i = (this.keptNext + k) % KEEP_PICTURES;
+      if (this.keptAt[i] && now - this.keptAt[i] <= seconds * 1000) out.push(this.keptPictures[i].slice());
+    }
+    return out;
   }
 
   /** Renders the scene from a head camera into a target as the duck's eyes see it (the duck itself hidden). */

@@ -141,6 +141,8 @@ export class DuckSystem extends createSystem({
   policyBaseUrl = '';
   /** A trained policy set chosen in the app (see PolicyInboxSystem); beats ?policies= and the shipped set. */
   policyOverride: string | null = null;
+  /** A tried release's camera brain (its nav-camera.onnx); null: the shipped one (src/nav/nav-system.ts). */
+  navCameraUrl: string | null = null;
   private spawnGeneration = 0;
   profile!: DuckProfile;
   /** Latest rendered pose in the stage's MuJoCo frame (see POSE_SIZE). */

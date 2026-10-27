@@ -119,8 +119,10 @@ export function gatherCourse(stage: Object3D, ball: Object3D | null, level: Obje
       return;
     }
     relative.multiplyMatrices(stageInverse, object.matrixWorld);
+    const label = (object.userData.iwsdkSceneAssetId as string | undefined) || object.name || undefined;
     for (const spec of specs) {
-      colliders.push(colliderFromSpec(spec, relative));
+      const collider = colliderFromSpec(spec, relative);
+      colliders.push(label ? { ...collider, label } : collider);
     }
   };
   stage.traverse(collect);

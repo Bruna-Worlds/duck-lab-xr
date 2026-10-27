@@ -52,6 +52,7 @@ import { incomingDir, rescanIndex, setActive } from '../train/lib/release.mjs';
 import { writeDuckVisuals } from '../isaac/scenario/duck-visuals.mjs';
 import { crossCheck, ENGINES } from '../train/cross-check.mjs';
 import { exportPack, trainJob } from '../train/lib/export.mjs';
+import { trainingGround } from '../train/lib/ground.mjs';
 import { publicTrainer, recordCrossCheck, runCommandTrainer, trainers, writeTrainedRelease } from '../train/lib/trainers.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -411,12 +412,13 @@ function startJob(body) {
     : runOutsideTrainer(job, trainer, paths, onEvent);
   work
     .then(async (release) => {
-      if (release && !controller.signal.aborted) {
+      // A trainer with its own cross-check (the camera brain's drives) has had it already.
+      if (release && !controller.signal.aborted && !job.ownCrossCheck) {
         broadcast('releases', rescanIndex(root));
         onEvent({ type: 'status', message: `cross-checking ${release.id} in the other engines` });
         try {
           const report = await crossCheck(
-            { packs: paths, brains: ['shipped', release.id], engines: GATE_ENGINES, seeds: 6, out: join(root, 'artifacts', 'cross-check', release.id) },
+            { packs: paths, brains: [job.before ?? 'shipped', release.id], engines: GATE_ENGINES, seeds: 6, out: join(root, 'artifacts', 'cross-check', release.id) },
             (e) => onEvent({ ...e, type: 'crosscheck', kind: e.type }),
           );
           recordCrossCheck(root, release.id, report);
@@ -488,37 +490,118 @@ function trainerOutput(onEvent) {
   };
 }
 
+/** The release whose trained camera brain has this hash, or null (the shipped one). */
+function releaseOfNav(hash) {
+  if (!hash) return null;
+  const dir = incomingDir(root);
+  for (const id of existsSync(dir) ? readdirSync(dir) : []) {
+    const file = join(dir, id, 'manifest.json');
+    if (existsSync(file) && JSON.parse(readFileSync(file, 'utf8')).files?.['nav-camera.onnx']?.hash === hash) return id;
+  }
+  return null;
+}
+
+/** The release whose trained walking brain has this hash, or null. */
+function releaseOfWalk(hash) {
+  if (!hash) return null;
+  return rescanIndex(root).releases.find((r) => r.walkHash === hash && (r.brains ?? []).includes('walk'))?.id ?? null;
+}
+
+/** The camera brain a test case's drive used, by hash: null for the shipped one (its URL names no release). */
+function navBrainHash(pack) {
+  const id = String(pack.nav?.brainUrl ?? '').match(/\/policies\/(?:incoming|linked)\/([^/]+)\/nav-camera\.onnx/)?.[1];
+  if (!id) return null;
+  const file = join(incomingDir(root), basename(decodeURIComponent(id)), 'manifest.json');
+  if (!existsSync(file)) return null;
+  return JSON.parse(readFileSync(file, 'utf8')).files?.['nav-camera.onnx']?.hash ?? null;
+}
+
+/** What the camera brain saw in a pack (its pictures, RGB bytes in base64), for the page. */
+function pictureList(pack) {
+  const c = pack.camera;
+  return c?.frames?.length ? { width: c.width, height: c.height, frames: c.frames } : null;
+}
+
 /** A command trainer (trainers.mjs) on the job's packs, exported for it; its walk.onnx becomes a release. */
 async function runOutsideTrainer(job, trainer, paths, onEvent) {
   const dir = join(root, 'artifacts', 'jobs', job.id);
   const packsDir = join(dir, 'packs');
   const out = join(dir, 'out');
   mkdirSync(out, { recursive: true });
-  for (const path of paths) exportPack(loadPack(path, root), join(packsDir, basename(path).replace(/\.scenario\.json$/, '')), shippedDir);
+  const loaded = paths.map((path) => loadPack(path, root));
+  for (const l of loaded) exportPack(l, join(packsDir, basename(l.path).replace(/\.scenario\.json$/, '')), shippedDir);
   const jobFile = join(dir, 'job.json');
   const baseHash = policyHash(readFileSync(join(shippedDir, 'walk.onnx')));
   writeFileSync(jobFile, `${JSON.stringify(trainJob({ id: job.id, packs: job.packs, baseHash, iterations: job.options.iterations, notes: `trainer ${trainer.id}` }), null, 2)}\n`);
   onEvent({ type: 'status', message: `${trainer.title}: ${job.packs.length} pack(s) exported to ${dir}` });
-  const walk = await runCommandTrainer(
-    trainer,
-    { job: jobFile, packs: packsDir, out, envs: job.options.envs, iterations: job.options.iterations },
-    trainerOutput(onEvent),
-    job.controller.signal,
-  );
+  const first = loaded[0].pack;
+  // The walking brain that failed in the test case (a release, or the shipped one): the cross-check's other brain.
+  job.before = releaseOfWalk(first.policy?.hash) ?? 'shipped';
+  const values = {
+    job: jobFile,
+    packs: packsDir,
+    out,
+    envs: job.options.envs,
+    iterations: job.options.iterations,
+    // The brains Pip ran in the first test case: the trainer continues them.
+    brainHash: first.policy?.hash ?? null,
+    shippedHash: baseHash,
+    navBrainHash: navBrainHash(first),
+    // The camera brain that drove in the test case, as a release id (or the shipped one), and the test case itself.
+    navBefore: releaseOfNav(navBrainHash(first)),
+    testCase: paths[0],
+  };
+  // The training ground: the first test case rebuilt for this trainer (tools/train/lib/ground.mjs).
+  if (trainer.ground) {
+    const ground = trainingGround(first, { name: job.packs[0], purpose: trainer.ground });
+    values.ground = join(dir, 'ground.json');
+    writeFileSync(values.ground, `${JSON.stringify(ground, null, 1)}\n`);
+    job.ground = { pack: job.packs[0], purpose: ground.purpose, obstacles: ground.obstacles.length, summary: ground.summary };
+    onEvent({ type: 'ground', ground, pictures: pictureList(first) });
+    onEvent({ type: 'status', message: `Training ground from test case ${job.packs[0]}: ${ground.summary}` });
+  }
+  const walk = await runCommandTrainer(trainer, values, trainerOutput(onEvent), job.controller.signal);
+  if (values.from) onEvent({ type: 'status', message: `continued ${values.from}` });
   const metricsFile = join(out, 'metrics.json');
   const metrics = existsSync(metricsFile) ? JSON.parse(readFileSync(metricsFile, 'utf8')) : null;
+  const made = trainer.made?.(trainer) ?? null;
   const release = await writeTrainedRelease({
     root,
     name: job.options.name,
     walkPath: walk,
+    brain: trainer.brain ?? 'walk',
     baseDir: shippedDir,
     trainer,
     packs: job.packs,
     metrics,
-    settings: { envs: job.options.envs, iterations: job.options.iterations },
+    settings: { envs: job.options.envs, iterations: job.options.iterations, ...(values.from ? { from: values.from } : {}), ...(made ? { made } : {}) },
+    ground: job.ground ?? null,
     publish: false,
   });
   job.result = { release, metrics };
+  // A trainer with its own cross-check (the camera brain: drives in rooms rebuilt from the test case).
+  if (trainer.crossCheck && made) {
+    onEvent({ type: 'status', message: `cross-checking ${release.id}: both camera brains drive in rooms rebuilt from the test case (Isaac Lab)` });
+    try {
+      const rows = await trainer.crossCheck(trainer, values, made, release.id, (line) => onEvent({ type: 'log', line }));
+      const table = rows.map((r) => ({
+        brain: r.brain === 'after' ? release.id : (values.navBefore ?? 'shipped'),
+        engine: r.engine,
+        falls: r.falls / r.tries,
+        reached: r.reached,
+        stuck: r.stuck,
+        tries: r.tries,
+      }));
+      recordCrossCheck(root, release.id, { at: new Date().toISOString(), out, packs: job.packs, engines: [...new Set(table.map((r) => r.engine))], table });
+      job.result.crossCheck = table;
+      for (const r of table) {
+        onEvent({ type: 'drives', brain: r.brain, role: r.brain === release.id ? 'after' : 'before', engine: r.engine, reached: r.reached, stuck: r.stuck, falls: Math.round(r.falls * r.tries), tries: r.tries });
+      }
+    } catch (err) {
+      onEvent({ type: 'status', message: `cross-check failed: ${err.message}` });
+    }
+    job.ownCrossCheck = true;
+  }
   return release;
 }
 
@@ -731,6 +814,12 @@ const server = createServer(async (req, res) => {
     }
     if (p === '/api/train' && req.method === 'POST') return sendJson(res, 200, startJob(JSON.parse(await readBody(req))));
     if (p === '/api/trainers' && req.method === 'GET') return sendJson(res, 200, { trainers: trainers(root).map(publicTrainer), engines: ENGINES });
+    if (p === '/api/ground' && req.method === 'GET') {
+      // The training ground a test case makes for a trainer (purpose step or nav), and what Pip's camera saw.
+      const pack = JSON.parse(readFileSync(packPath(url.searchParams.get('pack') ?? ''), 'utf8'));
+      const purpose = url.searchParams.get('purpose') === 'nav' ? 'nav' : 'step';
+      return sendJson(res, 200, { ground: trainingGround(pack, { name: url.searchParams.get('pack'), purpose }), pictures: pictureList(pack) });
+    }
     if (p === '/api/crosscheck' && req.method === 'POST') return sendJson(res, 200, startCrossCheck(JSON.parse((await readBody(req)) || '{}')));
     if (p === '/api/crosscheck' && req.method === 'GET') return sendJson(res, 200, { job: crossJob, latest: latestCrossCheck() });
     m = p.match(/^\/api\/jobs\/([^/]+)\/stop$/);

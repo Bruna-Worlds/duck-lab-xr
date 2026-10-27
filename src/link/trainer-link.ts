@@ -241,15 +241,17 @@ export class TrainerLink {
       return;
     }
     try {
+      // A camera brain release carries its navigation brain too.
+      const names = release.brains?.includes('nav-camera') ? [...BRAIN_FILES, 'nav-camera.onnx', 'nav-camera.json'] : BRAIN_FILES;
       const files = await Promise.all(
-        BRAIN_FILES.map(async (name) => {
+        names.map(async (name) => {
           const res = await fetch(`${this.options.engine}/api/releases/${encodeURIComponent(id)}/files/${encodeURIComponent(name)}`);
           if (!res.ok) throw new Error(`${name}: HTTP ${res.status}`);
           return new Uint8Array(await res.arrayBuffer());
         }),
       );
-      peer.link.send({ t: 'brain-start', release, files: BRAIN_FILES });
-      for (let i = 0; i < files.length; i++) await peer.link.sendFile({ kind: 'brain', name: BRAIN_FILES[i], release: id }, files[i]);
+      peer.link.send({ t: 'brain-start', release, files: names });
+      for (let i = 0; i < files.length; i++) await peer.link.sendFile({ kind: 'brain', name: names[i], release: id }, files[i]);
       peer.link.send({ t: 'brain-end', id });
     } catch (err) {
       peer.link.send({ t: 'brain-failed', id, error: message(err) });

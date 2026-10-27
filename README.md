@@ -192,12 +192,25 @@ Where the two Pips part is where the physics engines disagree.
 
 New skills start from Pollen's walking brain instead of from scratch. A
 step-up task in Pollen's microduck_rl teaches it to lift its feet onto
-terraces up to 4 cm (the edge of a dog bed); it is one of the trainer
-page's trainers, and mjlab films the crowd of ducks training. Navigation
-brains steer the walker from the head's sensors: one from the 8 x 8 distance
-sensor (mjlab), one from the head camera as well (NVIDIA Isaac Lab 3,
-learning from the first). How they were trained and how far they got:
+steps (the edge of a dog bed); it is one of the trainer page's trainers, and
+mjlab films the crowd of ducks training. Navigation brains steer the walker
+from the head's sensors: one from the 8 x 8 distance sensor (mjlab), one from
+the head camera as well (NVIDIA Isaac Lab 3, learning from the first). How
+they were trained and how far they got:
 [tools/train/README.md](tools/train/README.md), section 10.
+
+### Training on the test case itself
+
+A test case from the headset carries the moment as the app had it: who was
+steering and towards what, the course pieces and the scanned room in the way,
+and what the camera brain saw. The trainer page turns it into the **training
+ground** its trainer copies across the robots (drawn on the Train card): the
+step-up trainer puts a copy of the test case's mat and dog bed on every
+terrain patch, Pip starting where it did; the camera brain's trainer rebuilds
+the test case's room in most Isaac Lab training rooms, painted in the colours
+Pip's camera saw, and sends Pip to the goal it had. Each continues the brain
+that failed, and each new brain is cross-checked on that same test case:
+[tools/train/README.md](tools/train/README.md), section 11.
 
 ### Other engines and other trainers
 

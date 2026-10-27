@@ -10,7 +10,7 @@
  *
  *   node tools/film/trainers/record-release.mjs [dir]
  *
- * Env: LAB (http://127.0.0.1:8790), NAME (pollen-ppo-3000), CAPTION.
+ * Env: LAB (http://127.0.0.1:8790), NAME (pollen-ppo-3000), CAPTION, CLICK=1 (press Send to headset).
  */
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { chromium } from 'playwright';
@@ -76,6 +76,13 @@ try {
   if (await send.count()) {
     const b = await send.boundingBox();
     if (b) await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 26 });
+    if (process.env.CLICK === '1') {
+      // CLICK=1: send it, as the main take did ("!sent").
+      await wait(900);
+      await page.mouse.down();
+      await page.mouse.up();
+      marks.push(`${now().toFixed(3)} !sent`);
+    }
   }
   await wait(4500);
   marks.push(`${now().toFixed(3)} !end`);

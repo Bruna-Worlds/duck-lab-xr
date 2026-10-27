@@ -32,6 +32,18 @@ HEIGHT = float(os.environ.get("DUCKSTEP_HEIGHT", "0.02"))
 
 
 def make_show_cfg():
+    if train.GROUND is not None:
+        # The test case's ground at its own heights (DUCKLAB_GROUND), every patch a copy.
+        cfg = train.make_ground_cfg(train.GROUND, play=True, scale=(1.0, 1.0))
+        cfg.scene.terrain.terrain_generator.num_rows = 2
+        cfg.scene.terrain.terrain_generator.num_cols = 2
+        cfg.scene.terrain.terrain_generator.border_width = 4.0
+        cfg.scene.terrain.terrain_generator.add_lights = True
+        cfg.scene.terrain.terrain_generator.sub_terrains = {"ground": cfg.scene.terrain.terrain_generator.sub_terrains["ground"]}
+        cfg.scene.terrain.terrain_generator.sub_terrains["ground"].proportion = 1.0
+        cfg.scene.terrain.terrain_generator.sub_terrains["ground"].jitter = 0.0
+        cfg.scene.terrain.terrain_generator.sub_terrains["ground"].jitter_yaw = 0.0
+        return cfg
     cfg = train.make_cfg(play=True)
     cfg.scene.terrain.terrain_generator = TerrainGeneratorCfg(
         size=(4.0, 4.0),

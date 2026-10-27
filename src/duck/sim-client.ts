@@ -283,6 +283,11 @@ export class DuckSimClient {
     this.rebuildIfNeeded();
   }
 
+  /** The static colliders in the running model (stage frame): the course's and the room's. */
+  get colliders(): { course: PhysicsCollider[]; room: PhysicsCollider[] } {
+    return { course: this.builtCourse?.colliders ?? [], room: this.builtRoom };
+  }
+
   private rebuildIfNeeded(): void {
     if (!this.source || !this.ready || (this.room === this.builtRoom && this.course === this.builtCourse)) {
       return;

@@ -28,7 +28,17 @@ panel's "Pack scenario" button (`?lab=1`). It holds:
   since (time, forward speed, turn rate, four head slots, move), and `end`:
   where the headset's sim ended, so a replay can be checked;
 - the control convention (joint names, standing pose, observation layout,
-  50 Hz with 4 physics steps) and which policy files drove the duck.
+  50 Hz with 4 physics steps) and which policy files drove the duck;
+- `nav`: who was steering (the path planner, the depth brain or the camera
+  brain, and which file), the task and its goal in the stage frame;
+- `obstacles`: what was in the way, in the stage's MuJoCo frame: the course
+  pieces as the sim had them (labelled by asset, `walkable` for steps such as
+  the play mat and the dog bed) and, in mixed reality, the scan as a camera
+  sees it (walls, and each piece of furniture as one solid box, labelled);
+- `camera`: while the camera brain drove, its last pictures (64 x 36 RGB,
+  one a second) and the room model's own floor and backdrop colours.
+
+The trainer page builds a training ground from these (section 11).
 
 In development the pack is posted to the dev server and lands in
 `artifacts/scenarios/` on the PC, also when the headset captured it. Duck
@@ -286,6 +296,7 @@ outside trainer is never offered by itself.
   | `DUCKLAB_PACKS` | the picked packs, exported (one folder each: `scene.xml`, `assets/`, `state.json`, `policies/`) |
   | `DUCKLAB_OUT` | where to write `walk.onnx`, and `metrics.json` when it has numbers |
   | `DUCKLAB_ENVS`, `DUCKLAB_ITERATIONS` | the Robots and Iterations picked on the card |
+  | `DUCKLAB_GROUND` | for a trainer with a `ground` purpose: the training ground built from the first picked test case (`ducklab.ground.v1`, section 11) |
 
   Their output shows on the card; a line with `iteration N/M` moves the
   trainer chip. rsl_rl's table after each iteration (microduck_rl and Isaac
@@ -567,3 +578,101 @@ Traps found on Isaac Lab 3 / Newton:
   where mjlab, the app and the real duck follow it: the walker is asked for
   1.6x the forward speed (capped at 0.4) so a brain decision moves the duck as
   far as where the brain learned.
+
+## 11. Training grounds from test cases
+
+Section 10's first step-up runs practised on terraces of every height, a world
+of their own: the test case from the headset only came back for the
+cross-check. Now a trainer can train on the test case itself. The trainer
+page builds a **training ground** from the first ticked test case
+(`tools/train/lib/ground.mjs`, `node tools/train/lib/ground.mjs <pack> step|nav`
+prints one) and the Train card draws it from above: where Pip started and
+which way it was going (the autopilot's goal), where it fell or got stuck,
+and the pieces in the way, in a frame from the start towards the goal. A
+trainer that declares a `ground` purpose (trainers.mjs) gets it as
+`DUCKLAB_GROUND`, continues the brain that failed in the test case (the
+release whose brain has the test case's hash, by its manifest's
+`trainer.made`, else the shipped one) and is cross-checked on that test case
+against it.
+
+**Climbing** (`microduck-stepup`, purpose `step`): every terrain patch is a
+copy of the test case (`duckstep/ground.py`): its play mat and dog bed where
+they were, the finish posts, scanned furniture only where it is in the way.
+Ducks start where Pip's run began (the autopilot's task start; for a test
+case saved before those were recorded, 45 cm before the first step: a pack's
+own start is history from just before the trouble and can be right at the
+step), facing the way it faced, up to 25 cm further back, and walk the way it
+went at about its speed (a heading command along the ground's x). The
+curriculum's rows make the steps 70% to 120% as tall (the test case's own
+height three fifths of the way up) and a duck goes up a row once it gets 40 cm
+past where Pip fell without a fall. Three in five patches are copies, one in
+five the earlier terraces (`DUCKSTEP_REHEARSE`), one in five flat floor.
+`duckstep/play.py` and `film.py` show the ground at its own heights when
+`DUCKLAB_GROUND` is set.
+
+**Steering** (`isaaclab-nav-camera`, purpose `nav`, Isaac Lab 3): 7 of 10
+training rooms rebuild the test case's room (`isaacnav/mdp.py`): its
+furniture and walls as heavy boxes where they were (the layout turned by
+quarter turns and a little, each piece nudged; pieces that would cross the
+room's walls wait outside), Pip where the drive began, sent to the goal it
+had (or where the test case's history starts, or at the stuck pose itself,
+facing as it was); the other rooms stay random. The rebuilt rooms are painted in the colours
+Pip's camera saw: the test case keeps the camera brain's last pictures, and
+`ground.mjs` clusters their pixels (the app names its own floor and backdrop
+colours; each episode still changes the picture's brightness, contrast and
+tint). The camera brain goes on learning from the depth brain there.
+
+The colours matter some. In the same 64 rooms rebuilt from the coffee-table
+test case, the shipped camera brain reached the goal 48 times randomly
+coloured and 41 painted the way the app draws the room for its camera (flat
+light blue blocks and grey volumes on a tan floor; stuck 9 and 17 times). In
+the app itself it reached it 0 times in 4: the rebuilt rooms still do not
+reproduce the app's failure, which is why the cross-check drives the test case
+in the app.
+
+Its cross-check drives the test case again with the camera brain that got
+stuck and the new one: in the app itself (`tools/test/camera-drive-check.mjs`
+with `PACK=<test case>`: the course placed where it stood, Pip teleported to
+where the drive began, sent to the goal, as Pip cam draws the room for the
+brain; needs the dev server), then in 64 rooms rebuilt from it in Isaac Lab
+(`isaacnav/drive_check.py`). The release carries `nav-camera.onnx` over the
+shipped walker; TRY IT on the headset runs it as the camera driver.
+
+Results (2026-10-27).
+
+*Camera brain, the coffee table.* The test case: the shipped camera brain sent
+from the open side of the real coffee table to a spot behind it (the emulated
+living room) dithers left, right and back and gets stuck. Three runs from the
+shipped brain (256 robots, 300 rounds, about 45 minutes each):
+
+Reached the goal, the shipped camera brain then the new one (the shipped one
+never got there in the app: 0 of 16 over all the checks):
+
+| Run: training rooms start Pip | In the app | Isaac Lab, 64 rebuilt rooms |
+| --- | --- | --- |
+| 1: at the test case's own start (wedged at the table's corner) | 0 to 5 of 5 | 43 to 37 |
+| 2: where the drive began only | 0 to 0 of 4 | 45 to 43 |
+| 3: the drive's start, the test case's start and the stuck pose (release camera-ground) | 0 to 4 of 4, in 30 to 35 s | 41 to 45 (41 to 51 in a later check) |
+
+Practising the stuck moment itself is what helped; from the drive's start the
+old brain already copes in Isaac Lab, so there was little to learn there.
+
+*Climbing, the Dog Bed.* The test case: step-up-6 fell twice on the course
+(on the mat, then just before the dog bed). Three runs from step-up-6 (1024
+robots, 800 rounds, about 40 minutes each):
+
+- every duck starting at the test case's own start, 11 cm before the mat:
+  in the app it walked to the mat's edge and stood there (it learned not to
+  fall from a standstill against the step); the step test fell to 2 cm 4 of 32;
+- with a run-up: up the mat at once, falls at the dog bed's edge;
+- with a run-up and terraces rehearsed (release step-up-rehearse): on the Dog
+  Bed course in the app (4 runs of 50 s each) onto the mat 4 of 4 in 6 to 8 s
+  (step-up-6 4 of 4 in 8 to 31 s), onto the dog bed 4 of 4 (step-up-6 3 of 4),
+  but 11 falls on the way (step-up-6 7), and the step test (32 tries) 1.5, 2,
+  2.5, 3 cm 7, 7, 5, 3 (step-up-6 16, 13, 13, 10). Its cross-check on the test
+  case: MuJoCo and Newton no fall (step-up-6 neither), randomised MuJoCo 2 of
+  6 fell (1 of 6).
+
+It learned its course and lost part of its general climbing: one test case is
+a narrow world. Next: train on several test cases at once (the app saved new
+ones at the dog bed during these takes), and keep the step test as a gate.

@@ -706,6 +706,77 @@ export class RoomSystem extends createSystem({
     return out;
   }
 
+  /**
+   * The scan as a camera sees it, for test cases (a trainer rebuilds the
+   * room from these): every wall a slab, every bounded furniture mesh one
+   * solid box (a table too: Pip cam's brain eye draws the scan's meshes
+   * solid), labelled, in the stage's MuJoCo frame. Empty outside mixed reality.
+   */
+  sceneVolumes(stage: Object3D): PhysicsCollider[] {
+    const out: PhysicsCollider[] = [];
+    if (!this.mixedReality) return out;
+    stage.updateWorldMatrix(true, false);
+    this.stageInverse.copy(stage.matrixWorld).invert();
+    const push = (object: Object3D, spec: ColliderSpec, label: string) => {
+      this.relative.multiplyMatrices(this.stageInverse, object.matrixWorld);
+      out.push({ ...colliderFromSpec(spec, this.relative), label });
+    };
+    for (const entity of this.queries.planes.entities) {
+      const object = entity.object3D;
+      const plane = entity.getValue(XRPlaneComponent, '_plane') as XRPlane | undefined;
+      if (!object || !plane || plane.polygon.length < 3 || plane.orientation !== 'vertical') continue;
+      let x0 = Infinity;
+      let x1 = -Infinity;
+      let z0 = Infinity;
+      let z1 = -Infinity;
+      for (const vertex of plane.polygon) {
+        x0 = Math.min(x0, vertex.x);
+        x1 = Math.max(x1, vertex.x);
+        z0 = Math.min(z0, vertex.z);
+        z1 = Math.max(z1, vertex.z);
+      }
+      object.updateWorldMatrix(true, false);
+      push(
+        object,
+        { type: 'box', half: [(x1 - x0) / 2, WALL_THICKNESS / 2, (z1 - z0) / 2], pos: [(x0 + x1) / 2, -WALL_THICKNESS / 2, (z0 + z1) / 2] },
+        plane.semanticLabel || 'wall',
+      );
+    }
+    for (const entity of this.queries.meshes.entities) {
+      const object = entity.object3D;
+      const label = entity.getValue(XRMeshComponent, 'semanticLabel') as string;
+      if (!object || STRUCTURE.has(label) || !entity.getValue(XRMeshComponent, 'isBounded3D')) continue;
+      const min = entity.getVectorView(XRMeshComponent, 'min');
+      const max = entity.getVectorView(XRMeshComponent, 'max');
+      object.updateWorldMatrix(true, false);
+      let lowest = Infinity;
+      let sx0 = Infinity;
+      let sx1 = -Infinity;
+      let sz0 = Infinity;
+      let sz1 = -Infinity;
+      for (let k = 0; k < 8; k++) {
+        this.column.set(k & 1 ? max[0] : min[0], k & 2 ? max[1] : min[1], k & 4 ? max[2] : min[2]);
+        this.column.applyMatrix4(object.matrixWorld).applyMatrix4(this.stageInverse);
+        lowest = Math.min(lowest, this.column.y);
+        sx0 = Math.min(sx0, this.column.x);
+        sx1 = Math.max(sx1, this.column.x);
+        sz0 = Math.min(sz0, this.column.z);
+        sz1 = Math.max(sz1, this.column.z);
+      }
+      if (lowest > HANGING || (sx1 - sx0 > ROOM_SIZE && sz1 - sz0 > ROOM_SIZE)) continue;
+      push(
+        object,
+        {
+          type: 'box',
+          half: [(max[0] - min[0]) / 2, (max[1] - min[1]) / 2, (max[2] - min[2]) / 2],
+          pos: [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2],
+        },
+        label || 'furniture',
+      );
+    }
+    return out;
+  }
+
   /** World-space footprints of the scanned furniture, as last collected (for the autopilot). */
   obstacleBoxes(): { minX: number; maxX: number; minZ: number; maxZ: number }[] {
     if (this.mixedReality) this.collectObstacles();

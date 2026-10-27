@@ -17,7 +17,9 @@
 
 from __future__ import annotations
 
+import json
 import math
+import os
 from dataclasses import MISSING
 
 import torch
@@ -64,7 +66,12 @@ BUMP = 0.1  # m from the root to a box's footprint counts as touching it
 # crossing (overlapping heavy bodies are shoved apart and open gaps the camera sees through): north and
 # south span the room, east and west stand just past their ends and cover them.
 FLOOR = 0.02  # tile thickness: the tile rests on the ground plane, its top is the floor
-TILE = 6.0
+# A test case's room (DUCKLAB_GROUND, below) parks its pieces outside the walls too: a wider tile.
+GROUND = None
+if os.environ.get("DUCKLAB_GROUND"):
+    with open(os.environ["DUCKLAB_GROUND"], encoding="utf-8") as _f:
+        GROUND = json.load(_f)
+TILE = 8.0 if GROUND else 6.0
 HALF = 2.3  # wall centre lines; the room inside is 4.52 m square
 WALL_T = 0.08
 WALL_H = 0.4
@@ -87,6 +94,59 @@ BOXES = (  # half sizes (x, y, z) of the box slots: toys, crates, a bench, a sof
 PARK = (-1.3, 0.0, 1.3)  # along each outside strip, for boxes not in this episode's room
 ACTIVE = (3, 8)
 SPAWN_CLEAR = 0.45
+# Parked boxes lie in a lane just outside the walls; a test case's pieces in a lane beyond it.
+PARK_LANE = EW_AT + WALL_T / 2 + 0.34
+TC_PARK = (-2.6, 0.0, 2.6)
+TC_LANE = EW_AT + WALL_T / 2 + 0.66
+
+
+# --- the test case's room ------------------------------------------------------------------------------
+# The trainer page's training ground (tools/train/lib/ground.mjs, purpose 'nav'): what was round Pip when
+# the headset saved the test case (furniture as the camera saw it, walls, course pieces), where it started
+# and the goal it had, in the ground's frame (x from the start towards the goal). GROUND_SHARE of the
+# rooms rebuild it, turned a quarter at a time and a little more, its pieces nudged; the rest are the
+# random rooms. Pieces become heavy boxes resting on the floor, up to TC_TALL (walls TC_WALL) tall.
+GROUND_SHARE = float(os.environ.get("DUCKLAB_GROUND_SHARE", "0.7"))
+TC_TALL = 0.9
+TC_WALL = 0.5
+TC_LOW = 0.05  # flatter pieces (mats) are walked over: not obstacles
+
+
+def _ground_pieces(ground: dict | None):
+    """Half sizes (x, y, z) of the test case's pieces and their places (x, y, yaw) in the ground's frame."""
+    if not ground:
+        return (), []
+    sizes, places = [], []
+    for o in ground["obstacles"][: len(TC_PARK) * 4]:
+        if o["top"] < TC_LOW:
+            continue
+        hx, hy, _ = o["half"]
+        wall = min(hx, hy) < 0.06 and max(hx, hy) > 0.5
+        hz = min(o["top"], TC_WALL if wall else TC_TALL) / 2
+        sizes.append((hx, hy, hz))
+        places.append((o["pos"][0], o["pos"][1], o["yaw"]))
+    return tuple(sizes), places
+
+
+TC, _TC_PLACES = _ground_pieces(GROUND)
+
+
+def _ground_points(ground: dict | None):
+    """Start (x, y, yaw), goal (x, y) and the middle of the two, in the ground's frame."""
+    if not ground:
+        return (0.0, 0.0, 0.0), (1.5, 0.0), (0.75, 0.0)
+    s = ground["start"]
+    goal = ground.get("goal") or [max(1.0, ground["trouble"][0] + 1.0), ground["trouble"][1]]
+    return (s["x"], s["y"], s["yaw"]), (goal[0], goal[1]), ((s["x"] + goal[0]) / 2, (s["y"] + goal[1]) / 2)
+
+
+_TC_START, _TC_GOAL, _TC_MID = _ground_points(GROUND)
+# Where test-case rooms start the duck (ground.mjs starts: the drive's start, the test case's own start, the stuck
+# pose), with their shares; one start (the ground's) without.
+_TC_STARTS = [(s["x"], s["y"], s["yaw"], s["share"]) for s in (GROUND or {}).get("starts") or []] or [(*_TC_START, 1.0)]
+# The cross-check (drive_check.py) drives from the drive's start only.
+if os.environ.get("DUCKLAB_GROUND_STARTS") == "first":
+    _TC_STARTS = _TC_STARTS[:1]
 
 
 def yaw_of(quat_xyzw: torch.Tensor) -> torch.Tensor:
@@ -107,12 +167,17 @@ def yaw_quat(yaw: torch.Tensor) -> torch.Tensor:
 def room_state(env) -> dict:
     """Per-env layout shared by the event, the goal command, the rewards and the observations."""
     if not hasattr(env, "nav_room"):
-        B, N = env.num_envs, len(BOXES)
+        B, N = env.num_envs, len(BOXES) + len(TC)
         env.nav_room = {
             "half": torch.full((B,), INSIDE, device=env.device),
-            # x, y, yaw, half x, half y per box slot, world frame; parked boxes sit outside the walls.
+            # x, y, yaw, half x, half y per box slot (the random ones, then the test case's), world frame;
+            # parked boxes sit outside the walls.
             "boxes": torch.zeros(B, N, 5, device=env.device),
             "active": torch.zeros(B, N, dtype=torch.bool, device=env.device),
+            # Rooms rebuilt from the test case: their first goal is its goal.
+            "test_case": torch.zeros(B, dtype=torch.bool, device=env.device),
+            "tc_goal": torch.zeros(B, 2, device=env.device),
+            "tc_fresh": torch.zeros(B, dtype=torch.bool, device=env.device),
         }
     return env.nav_room
 
@@ -143,10 +208,37 @@ def place_room(env, env_ids: torch.Tensor | None, robot_cfg: SceneEntityCfg, roo
     room = env.scene[room_cfg.name]
     origin = env.scene.env_origins[env_ids]
     half = torch.full((n,), INSIDE, device=dev)
+    T = len(TC)
 
     # The duck: near the middle, any heading, standing on the tile.
     spawn = origin[:, :2] + (torch.rand(n, 2, device=dev) * 2 - 1) * 0.3
     yaw = (torch.rand(n, device=dev) * 2 - 1) * math.pi
+
+    # Rooms rebuilt from the test case: its layout turned by a quarter turn or more and a little, its middle
+    # (between the start and the goal) near the room's; the duck where Pip started, facing about the same way.
+    test_case = (torch.rand(n, device=dev) < GROUND_SHARE) if T else torch.zeros(n, dtype=torch.bool, device=dev)
+    turn = torch.randint(0, 4, (n,), device=dev).float() * (math.pi / 2) + (torch.rand(n, device=dev) * 2 - 1) * 0.15
+    centre = origin[:, :2] + (torch.rand(n, 2, device=dev) * 2 - 1) * 0.1
+    tcos, tsin = torch.cos(turn), torch.sin(turn)
+
+    def layout(x: float, y: float) -> torch.Tensor:
+        """A point of the ground's frame in each room."""
+        dx, dy = x - _TC_MID[0], y - _TC_MID[1]
+        return centre + torch.stack([tcos * dx - tsin * dy, tsin * dx + tcos * dy], dim=-1)
+
+    if T:
+        starts = torch.tensor(_TC_STARTS, device=dev)
+        pick = torch.multinomial(starts[:, 3].expand(n, -1), 1).squeeze(1)
+        sx, sy, syaw = starts[pick, 0], starts[pick, 1], starts[pick, 2]
+        dx, dy = sx - _TC_MID[0], sy - _TC_MID[1]
+        tc_spawn = centre + torch.stack([tcos * dx - tsin * dy, tsin * dx + tcos * dy], dim=-1)
+        tc_spawn = tc_spawn + (torch.rand(n, 2, device=dev) * 2 - 1) * 0.06
+        tc_yaw = syaw + turn + (torch.rand(n, device=dev) * 2 - 1) * 0.35
+        spawn = torch.where(test_case[:, None], tc_spawn, spawn)
+        yaw = torch.where(test_case, tc_yaw, yaw)
+        state["tc_goal"][env_ids] = layout(_TC_GOAL[0], _TC_GOAL[1]) + (torch.rand(n, 2, device=dev) * 2 - 1) * 0.08
+    state["test_case"][env_ids] = test_case
+    state["tc_fresh"][env_ids] = test_case
     z0 = robot.cfg.init_state.pos[2]
     pose = torch.cat([spawn, torch.full((n, 1), z0 + FLOOR, device=dev), yaw_quat(yaw)], dim=-1)
     robot.write_root_pose_to_sim_index(root_pose=pose, env_ids=env_ids)
@@ -154,7 +246,7 @@ def place_room(env, env_ids: torch.Tensor | None, robot_cfg: SceneEntityCfg, roo
 
     # The tile and the walls.
     N = len(BOXES)
-    poses = torch.zeros(n, 5 + N, 7, device=dev)
+    poses = torch.zeros(n, 5 + N + T, 7, device=dev)
     poses[..., 6] = 1.0
     poses[:, 0, :2] = origin[:, :2]
     poses[:, 0, 2] = FLOOR / 2
@@ -167,9 +259,9 @@ def place_room(env, env_ids: torch.Tensor | None, robot_cfg: SceneEntityCfg, roo
     # The boxes: each active one tries 16 spots in the room, clear of the duck and of earlier boxes.
     count = torch.randint(ACTIVE[0], ACTIVE[1] + 1, (n,), device=dev)
     rank = torch.rand(n, N, device=dev).argsort(dim=1).argsort(dim=1)
-    active = rank < count[:, None]
-    boxes = torch.zeros(n, N, 5, device=dev)
-    placed = torch.zeros(n, N, dtype=torch.bool, device=dev)
+    active = (rank < count[:, None]) & ~test_case[:, None]  # a test case's room has only its own pieces
+    boxes = torch.zeros(n, N + T, 5, device=dev)
+    placed = torch.zeros(n, N + T, dtype=torch.bool, device=dev)
     rows = torch.arange(n, device=dev)
     K = 16
     for j, (hx, hy, hz) in enumerate(BOXES):
@@ -189,7 +281,7 @@ def place_room(env, env_ids: torch.Tensor | None, robot_cfg: SceneEntityCfg, roo
         ya = cyaw[rows, pick]
         # Parked: in the strip between the walls and the tile's edge, the long side along it.
         side, slot = j % 4, PARK[j // 4]
-        out = (EW_AT + WALL_T / 2 + TILE / 2) / 2 + 0.02
+        out = PARK_LANE
         if side < 2:
             park = torch.stack([origin[:, 0] + slot, origin[:, 1] + out * (1 if side == 0 else -1)], dim=-1)
             park_yaw = 0.0
@@ -203,10 +295,37 @@ def place_room(env, env_ids: torch.Tensor | None, robot_cfg: SceneEntityCfg, roo
         poses[:, 5 + j, :2] = at
         poses[:, 5 + j, 2] = FLOOR + hz + 0.001
         poses[:, 5 + j, 3:] = yaw_quat(ya)
+
+    # The test case's pieces: where they were, nudged; parked in the outer lane in the other rooms, or when
+    # this turn of the layout would put one through a wall.
+    for k, ((hx, hy, hz), (px, py, pyaw)) in enumerate(zip(TC, _TC_PLACES)):
+        j = N + k
+        at = layout(px, py) + (torch.rand(n, 2, device=dev) * 2 - 1) * 0.04
+        ya = pyaw + turn + (torch.rand(n, device=dev) * 2 - 1) * 0.05
+        c, s = torch.cos(ya).abs(), torch.sin(ya).abs()
+        reach = torch.stack([c * hx + s * hy, s * hx + c * hy], dim=-1)  # footprint half extents, world axes
+        inside = ((at - origin[:, :2]).abs() + reach < INSIDE - 0.01).all(dim=-1)
+        use = test_case & inside
+        side, slot = k % 4, TC_PARK[(k // 4) % len(TC_PARK)]
+        out = TC_LANE + min(hx, hy)
+        along_x = hx >= hy
+        if side < 2:
+            park = torch.stack([origin[:, 0] + slot, origin[:, 1] + out * (1 if side == 0 else -1)], dim=-1)
+            park_yaw = 0.0 if along_x else math.pi / 2
+        else:
+            park = torch.stack([origin[:, 0] + out * (1 if side == 2 else -1), origin[:, 1] + slot], dim=-1)
+            park_yaw = math.pi / 2 if along_x else 0.0
+        at = torch.where(use[:, None], at, park)
+        ya = torch.where(use, ya, torch.full_like(ya, park_yaw))
+        boxes[:, j] = torch.stack([at[:, 0], at[:, 1], ya, torch.full_like(ya, hx), torch.full_like(ya, hy)], dim=-1)
+        placed[:, j] = use
+        poses[:, 5 + j, :2] = at
+        poses[:, 5 + j, 2] = FLOOR + hz + 0.001
+        poses[:, 5 + j, 3:] = yaw_quat(ya)
     state["boxes"][env_ids] = boxes
     state["active"][env_ids] = placed
     room.write_body_pose_to_sim_index(body_poses=poses, env_ids=env_ids)
-    room.write_body_velocity_to_sim_index(body_velocities=torch.zeros(n, 5 + N, 6, device=dev), env_ids=env_ids)
+    room.write_body_velocity_to_sim_index(body_velocities=torch.zeros(n, 5 + N + T, 6, device=dev), env_ids=env_ids)
 
 
 # --- the walker under the brain ---------------------------------------------------------------------
@@ -356,8 +475,13 @@ class NavGoalCommand(CommandTerm):
         score = torch.where(ok, 1.0 + torch.rand_like(dist) + 2.0 * (blocked == want).float(), clearance(cand, boxes, active) / 10.0)
         pick = score.argmax(dim=1)
         rows = torch.arange(n, device=self.device)
-        self.goal[ids] = cand[rows, pick]
-        self.metrics["blocked"][ids] = blocked[rows, pick].float()
+        goal = cand[rows, pick]
+        # A room rebuilt from a test case: its first goal is the goal Pip had.
+        fresh = state["tc_fresh"][ids]
+        goal = torch.where(fresh[:, None], state["tc_goal"][ids], goal)
+        state["tc_fresh"][ids] = False
+        self.goal[ids] = goal
+        self.metrics["blocked"][ids] = torch.where(fresh, torch.ones_like(dist[:, 0]), blocked[rows, pick].float())
         self.version[ids] += 1
 
     def _update_command(self) -> None:
@@ -581,4 +705,25 @@ class room_colors(ManagerTermBase):
     def __call__(self, env, env_ids, names, low: float = 0.08, high: float = 0.92) -> None:
         ids = torch.arange(env.num_envs, device=env.device) if env_ids is None or isinstance(env_ids, slice) else env_ids.long()
         shapes = self.shapes[ids]
-        self.colors[shapes.flatten()] = torch.empty(shapes.numel(), 3, device=env.device).uniform_(low, high)
+        colours = torch.empty(shapes.numel(), 3, device=env.device).uniform_(low, high).reshape(shapes.shape[0], shapes.shape[1], 3)
+        look = (GROUND or {}).get("look")
+        if look and look.get("things"):
+            # Rooms rebuilt from the test case look as Pip's camera saw it (ground.mjs cameraLook): its floor's
+            # colour, walls and pieces in the colours of the things it saw (by how much of the picture each
+            # filled), each a little off. The random rooms keep their random colours.
+            rebuilt = room_state(env)["test_case"][ids]
+            if rebuilt.any():
+                dev = env.device
+                things = torch.tensor([t["rgb"] for t in look["things"]], device=dev)
+                weights = torch.tensor([t["share"] for t in look["things"]], device=dev)
+                n, S = shapes.shape
+                pick = torch.multinomial(weights.expand(n, -1), S, replacement=True)
+                painted = things[pick]
+                painted[:, 0] = torch.tensor(look["floor"], device=dev)
+                painted = (painted + torch.empty_like(painted).uniform_(-0.06, 0.06)).clamp(0.0, 1.0)
+                # Parked random boxes keep their own colours (seen over the walls only).
+                keep = torch.zeros(S, dtype=torch.bool, device=dev)
+                keep[5 : 5 + len(BOXES)] = True
+                use = rebuilt[:, None] & ~keep[None, :]
+                colours = torch.where(use[..., None], painted, colours)
+        self.colors[shapes.flatten()] = colours.reshape(-1, 3)

@@ -108,6 +108,15 @@
           </div>
           <p id="t-about" class="hint">Local fine-tune: evolution strategies on the walking policy's last layer, in MuJoCo on this PC, with shoves and noise. Checked on held-out seeds and on plain floor before it is released.</p>
           <p id="t-install" class="hint warn" hidden></p>
+          <div id="t-ground" class="ground" hidden>
+            <div class="ground-head"><b>Training ground</b><span id="t-ground-from" class="meta"></span></div>
+            <svg id="t-ground-svg" viewBox="0 0 480 240" role="img" aria-label="The training ground from the test case, from above"></svg>
+            <p id="t-ground-text" class="hint"></p>
+            <div id="t-ground-saw" class="ground-saw" hidden>
+              <div class="meta">What Pip's camera saw before it was saved</div>
+              <div id="t-ground-pics" class="pics"></div>
+            </div>
+          </div>
           <div id="t-es" class="form">
             <label>Name<input id="t-name" value="room-tuned" maxlength="40" /></label>
             <label>Iterations<input id="t-iterations" type="number" min="1" max="200" value="30" /></label>
@@ -124,7 +133,7 @@
             <label>Iterations<input id="t-oiterations" type="number" min="1" max="50000" value="1500" /></label>
           </div>
           <label id="t-publish-row" class="check"><input id="t-publish" type="checkbox" checked /> Offer it to the headset when it is better</label>
-          <p class="hint">Every new brain is then cross-checked against the shipped one in MuJoCo, MuJoCo with the randomisation, and Newton.</p>
+          <p id="t-check-hint" class="hint">Every new brain is then cross-checked against the shipped one in MuJoCo, MuJoCo with the randomisation, and Newton.</p>
           <div class="row">
             <button id="train" class="btn btn-go" disabled>Train on selected</button>
             <button id="stop" class="btn" disabled>Stop</button>

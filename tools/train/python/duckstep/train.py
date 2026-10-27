@@ -37,7 +37,8 @@ from mjlab.terrains import BoxFlatTerrainCfg, BoxRandomGridTerrainCfg  # noqa: E
 from mjlab.terrains.terrain_generator import TerrainGeneratorCfg  # noqa: E402
 from mjlab_microduck.tasks.microduck_velocity_env_cfg import MicroduckRlCfg, make_microduck_velocity_env_cfg  # noqa: E402
 
-from duckstep.mdp import climb_gain, terrace_levels, terrace_reach  # noqa: E402
+from duckstep.ground import GroundTerrainCfg, load_ground, patch_size, target_x  # noqa: E402
+from duckstep.mdp import climb_gain, ground_levels, ground_reach, terrace_levels, terrace_reach  # noqa: E402
 from duckstep.terrain import TerraceTerrainCfg  # noqa: E402
 
 TASK = "Ducklab-StepUp-MicroDuck"
@@ -68,9 +69,15 @@ VIDEO_ENVS = int(os.environ.get("DUCKSTEP_VIDEO_ENVS", "0"))
 VIDEO_DISTANCE = float(os.environ.get("DUCKSTEP_VIDEO_DISTANCE", "3.6"))
 # film.py pins the camera to the first duck's starting patch (a reset can send that duck to another one).
 FILM_LOOKAT = None
+# The trainer page's training ground from a test case (tools/train/lib/ground.mjs): the terraces give way
+# to copies of the test case (make_ground_cfg), keeping DUCKSTEP_REHEARSE of the patches as terraces.
+GROUND = load_ground()
+REHEARSE = float(os.environ.get("DUCKSTEP_REHEARSE", "0.2"))
 
 
 def make_cfg(play: bool = False):
+    if GROUND is not None:
+        return make_ground_cfg(GROUND, play)
     cfg = make_microduck_velocity_env_cfg(play=play, rough=True)
     cfg.scene.terrain.terrain_generator = TerrainGeneratorCfg(
         size=(4.0, 4.0),
@@ -101,6 +108,11 @@ def make_cfg(play: bool = False):
     twist.ranges.lin_vel_x, twist.ranges.lin_vel_y, twist.ranges.ang_vel_z = FORWARD, SIDEWAYS, TURN
     twist.rel_standing_envs = STANDING
     cfg.curriculum.pop("standing_envs", None)
+    _film(cfg, play)
+    return cfg
+
+
+def _film(cfg, play: bool) -> None:
     if VIDEO_ENVS > 0 and not play:
         from mjlab.viewer.viewer_config import ViewerConfig
 
@@ -113,6 +125,57 @@ def make_cfg(play: bool = False):
             width=1920,
             height=1080,
         )
+
+
+def make_ground_cfg(ground: dict, play: bool = False, scale: tuple[float, float] | None = None):
+    """The test case as the training ground (ground.py): patches that copy it, the duck starting where Pip
+    did and walking the way it went (a heading command along the ground's x at about the test case's speed),
+    the rows taller or lower copies of its steps. A fifth of the patches are flat floor, and REHEARSE of them
+    (a fifth by default) the terraces the brain learned to climb on: trained on copies of one test case alone,
+    a brain got past where Pip fell but lost its general climbing (the step test, 2 cm 13 of 32 to 4)."""
+    cfg = make_microduck_velocity_env_cfg(play=play, rough=True)
+    size = patch_size(ground)
+    terraces = {"terrace": TerraceTerrainCfg(proportion=REHEARSE, step_height_range=STEPS)} if REHEARSE > 0 and not scale else {}
+    cfg.scene.terrain.terrain_generator = TerrainGeneratorCfg(
+        size=size,
+        border_width=10.0,
+        num_rows=5 if play else 10,
+        num_cols=5,
+        curriculum=not play,
+        sub_terrains={
+            "ground": GroundTerrainCfg(proportion=0.8 - (REHEARSE if terraces else 0.0), ground=ground, **({"height_scale": scale} if scale else {})),
+            **terraces,
+            "flat": BoxFlatTerrainCfg(proportion=0.2),
+        },
+        add_lights=False,
+    )
+    if not play:
+        cfg.rewards["ground_reach"] = RewardTermCfg(func=ground_reach, weight=1e-6)
+        cfg.curriculum["terrain_levels"] = CurriculumTermCfg(func=ground_levels, params={"target": target_x(ground), "command_name": "twist"})
+        cfg.rewards["climb"] = RewardTermCfg(func=climb_gain, weight=CLIMB_WEIGHT)
+    cfg.rewards["foot_swing_height"].params["target_height"] = SWING_HEIGHT
+    cfg.rewards["foot_swing_height"].weight = SWING_WEIGHT
+    cfg.rewards["foot_clearance"].params["target_height"] = CLEARANCE
+    cfg.rewards["foot_clearance"].weight = CLEARANCE_WEIGHT
+    cfg.rewards["air_time"].params["threshold_max"] = AIR_TIME_MAX
+    # Start where Pip did, facing the way it faced (a little either way).
+    yaw = float(ground["start"]["yaw"])
+    pose = cfg.events["reset_base"].params["pose_range"]
+    # Up to 25 cm further back, so the run-up to the first step varies.
+    pose["x"], pose["y"], pose["yaw"] = (-0.25, 0.08), (-0.08, 0.08), (yaw - 0.25, yaw + 0.25)
+    # Walk the way Pip went, at about its speed: a heading along the ground's x, held by the command's turn.
+    vx = min(0.3, max(0.1, float(ground.get("vx") or 0.2)))
+    twist = cfg.commands["twist"]
+    twist.ranges.lin_vel_x = (0.8 * vx, min(0.35, 1.25 * vx))
+    twist.ranges.lin_vel_y = (-0.03, 0.03)
+    twist.ranges.ang_vel_z = TURN
+    twist.ranges.heading = (-0.12, 0.12)
+    twist.heading_command = True
+    twist.rel_heading_envs = 1.0
+    twist.rel_standing_envs = 0.02
+    twist.rel_turn_in_place_envs = 0.0
+    cfg.curriculum.pop("standing_envs", None)
+    _film(cfg, play)
     return cfg
 
 

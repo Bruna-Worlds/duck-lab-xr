@@ -79,3 +79,41 @@ class climb_gain:
         gain = (z - self.top).clamp(min=0.0)
         self.top = torch.maximum(self.top, z)
         return gain / self.step_dt
+
+
+# --- the test case as terrain (ground.py) ------------------------------------------------------------
+
+
+class ground_reach:
+    """A reward term in name only (zeros): the farthest each robot got along the ground's x (from its start
+    towards its goal) this episode, kept where the curriculum can read it before the episode resets."""
+
+    def __init__(self, cfg: RewardTermCfg, env):
+        self.far = torch.zeros(env.num_envs, device=env.device)
+        env.duckstep_far = self.far
+
+    def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
+        self.far[slice(None) if env_ids is None else env_ids] = 0.0
+
+    def __call__(self, env, **_) -> torch.Tensor:
+        along = env.scene["robot"].data.root_link_pos_w[:, 0] - env.scene.env_origins[:, 0]
+        torch.maximum(self.far, along, out=self.far)
+        return torch.zeros_like(self.far)
+
+
+def ground_levels(env, env_ids: torch.Tensor, target: float, command_name: str = "twist", moving: float = 0.05) -> dict[str, torch.Tensor]:
+    """Up a row (taller copies of the test case's steps) after getting `target` metres along without a fall;
+    down after a fall, or after being told to walk and not getting a third of the way."""
+    terrain = env.scene.terrain
+    far = getattr(env, "duckstep_far", None)
+    if far is None:
+        return {}
+    far = far[env_ids]
+    fell = env.termination_manager.terminated[env_ids]
+    command = env.command_manager.get_command(command_name)[env_ids]
+    asked = command[:, 0] > moving
+    move_up = (far > target) & ~fell
+    move_down = (fell | ((far < target / 3) & asked)) & ~move_up
+    terrain.update_env_origins(env_ids, move_up, move_down)
+    levels = terrain.terrain_levels.float()
+    return {"mean": levels.mean(), "max": levels.max(), "past": move_up.float().mean(), "fell": fell.float().mean()}

@@ -72,7 +72,16 @@ def _box(size, mass, color, name):
     )
 
 
-ROOM_NAMES = ("floor", "wall_n", "wall_s", "wall_e", "wall_w", *(f"box_{i}" for i in range(len(mdp.BOXES))))
+ROOM_NAMES = (
+    "floor",
+    "wall_n",
+    "wall_s",
+    "wall_e",
+    "wall_w",
+    *(f"box_{i}" for i in range(len(mdp.BOXES))),
+    # The test case's pieces (DUCKLAB_GROUND; mdp.py), after the random boxes.
+    *(f"tc_{i}" for i in range(len(mdp.TC))),
+)
 
 
 def _room() -> RigidObjectCollectionCfg:
@@ -81,6 +90,8 @@ def _room() -> RigidObjectCollectionCfg:
         objects[name] = _box(size, 300.0, (0.85, 0.85, 0.8), name)
     for i, (hx, hy, hz) in enumerate(mdp.BOXES):
         objects[f"box_{i}"] = _box((2 * hx, 2 * hy, 2 * hz), 60.0, (0.6, 0.3, 0.3), f"box_{i}")
+    for i, (hx, hy, hz) in enumerate(mdp.TC):
+        objects[f"tc_{i}"] = _box((2 * hx, 2 * hy, 2 * hz), 120.0, (0.45, 0.6, 0.8), f"tc_{i}")
     return RigidObjectCollectionCfg(rigid_objects=objects)
 
 
@@ -244,7 +255,8 @@ class DuckNavCameraEnvCfg(ManagerBasedRLEnvCfg):
         self.sim.physics_material = self.scene.terrain.physics_material
         # Room bodies resting on the tile add contacts (about 140 per room, measured): far more than the
         # walking task's 16 per duck. Past the cap MJWarp drops contacts and bodies sink through the floor.
-        self.sim.physics.solver_cfg.nconmax = 192
+        # A test case's pieces (parked or in the room) rest on the tile too.
+        self.sim.physics.solver_cfg.nconmax = 192 + 12 * len(mdp.TC)
         self.sim.physics.solver_cfg.njmax = 1024
         self.scene.contact_forces.update_period = self.sim.dt
         self.events.encoder_bias.params["action_name"] = "drive"

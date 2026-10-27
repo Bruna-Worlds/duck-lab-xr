@@ -37,6 +37,8 @@ export interface PhysicsCollider {
   friction?: number;
   /** A step the duck may climb onto: solid to the sim, open to the autopilot's planner. */
   walkable?: boolean;
+  /** What it belongs to (a course piece's asset id, a scanned thing's label), for test cases. */
+  label?: string;
 }
 
 export interface PhysicsCourse {

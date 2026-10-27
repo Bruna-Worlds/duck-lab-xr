@@ -123,6 +123,9 @@ interface Grid {
   sensed: Uint8Array;
 }
 
+/** A task's start is where Pip stands this long after it began (a teleport just before has settled). */
+const TASK_START_MS = 400;
+
 export class NavSystem extends createSystem({
   stages: { required: [DuckStage] },
   crumbs: { required: [CourseCrumb] },
@@ -240,6 +243,7 @@ export class NavSystem extends createSystem({
     this.waypoints = points;
     if (fp) this.waypoints.push({ x: fp.x, y: -fp.z, through: false, reach: 0.1 }); // stand on the pad
     this.task = 'course';
+    this.beginTask();
     this.path = [];
     this.status = this.taskStatus = 'Autopilot: running the course';
     this.duck?.restart();
@@ -249,6 +253,7 @@ export class NavSystem extends createSystem({
   comeHere(): void {
     if (!this.stage()) return;
     this.task = 'player';
+    this.beginTask();
     this.path = [];
     this.status = this.taskStatus = 'Autopilot: coming to you';
   }
@@ -261,6 +266,7 @@ export class NavSystem extends createSystem({
   explore(): void {
     if (!this.stage()) return;
     this.task = 'explore';
+    this.beginTask();
     this.wide = true;
     this.grid = null; // rebuild over the whole terrain area
     this.path = [];
@@ -272,6 +278,7 @@ export class NavSystem extends createSystem({
   goTo(x: number, y: number, label = 'there'): void {
     if (!this.stage()) return;
     this.task = 'goto';
+    this.beginTask();
     this.wide = true;
     this.grid = null;
     this.path = [];
@@ -296,6 +303,52 @@ export class NavSystem extends createSystem({
     this.stop();
     this.status = status;
     this.statusUntil = now + STATUS_MS;
+  }
+
+  /**
+   * For test cases: who was steering, towards what (stage frame), and how it
+   * was going. A trainer rebuilds the moment around the goal from this.
+   */
+  testCaseInfo(): {
+    driver: NavDriver;
+    brainUrl: string | null;
+    task: NavTask;
+    status: string;
+    stuck: boolean;
+    goal: [number, number] | null;
+    waypoints: [number, number][];
+    from: [number, number, number] | null;
+    fromSecondsAgo: number | null;
+  } {
+    const brainUrl = this.driver === 'planner' ? null : this.driver === 'camera' ? this.cameraBrainUrl : NAV_BRAIN_URL;
+    const from = this.task && this.taskStartAt > 0 ? this.taskStart : null;
+    return {
+      driver: this.driver,
+      brainUrl: brainUrl ? new URL(brainUrl, document.baseURI).href : null,
+      task: this.task,
+      status: this.status,
+      stuck: this.stuck,
+      goal: this.task ? [+this.target[0].toFixed(4), +this.target[1].toFixed(4)] : null,
+      waypoints: this.waypoints.map((w) => [+w.x.toFixed(4), +w.y.toFixed(4)] as [number, number]),
+      // Where Pip was when this task began (stage x, y, heading): the drive to replay.
+      from: from ? [+from[0].toFixed(4), +from[1].toFixed(4), +from[2].toFixed(4)] : null,
+      fromSecondsAgo: from ? +((performance.now() - this.taskStartAt) / 1000).toFixed(1) : null,
+    };
+  }
+
+  private beginTask(): void {
+    this.taskBegan = performance.now();
+    this.taskStartAt = 0;
+  }
+
+  /** Where the current task began (stage x, y, heading), taken a moment after it began (a teleport settles first). */
+  private readonly taskStart: [number, number, number] = [0, 0, 0];
+  private taskStartAt = 0;
+  private taskBegan = 0;
+
+  /** The camera brain the camera driver runs: a tried release's own, else the shipped one. */
+  get cameraBrainUrl(): string {
+    return this.duck?.navCameraUrl ?? NAV_CAMERA_URL;
   }
 
   /** True while a navigation brain (depth or camera) steers. */
@@ -377,6 +430,12 @@ export class NavSystem extends createSystem({
     const p = duck.pose;
     const x = p[0];
     const y = p[1];
+    if (!this.taskStartAt && now - this.taskBegan > TASK_START_MS) {
+      this.taskStart[0] = x;
+      this.taskStart[1] = y;
+      this.taskStart[2] = this.headingOf(p);
+      this.taskStartAt = now;
+    }
     if (this.lastAt && now > this.lastAt) {
       const dt = (now - this.lastAt) / 1000;
       const v = Math.hypot(x - this.lastX, y - this.lastY) / dt;
@@ -567,7 +626,7 @@ export class NavSystem extends createSystem({
       this.status = 'Autopilot: here!';
       return;
     }
-    sim.drive(this.target, this.driver === 'camera' ? NAV_CAMERA_URL : NAV_BRAIN_URL);
+    sim.drive(this.target, this.driver === 'camera' ? this.cameraBrainUrl : NAV_BRAIN_URL);
     if (sim.navState === 'error') {
       this.status = `${BRAIN_NAMES[this.driver]}: could not load it`;
     } else if (distance < this.bestDistance - PROGRESS || this.bestDistance === Infinity || sim.mode !== 'walk') {

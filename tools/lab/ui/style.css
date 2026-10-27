@@ -803,3 +803,67 @@ a.view:hover {
   font-size: 12px;
   color: rgba(255, 244, 220, 0.5);
 }
+
+/* The training ground a test case makes (Train card): a drawing from above, and what Pip's camera saw. */
+.ground {
+  margin: 4px 0 12px;
+  padding: 10px 12px 6px;
+  border-radius: 12px;
+  background: var(--ink);
+  border: 1px solid var(--faint);
+}
+
+.ground-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+
+.ground-head b {
+  font-family: var(--display);
+  font-size: 18px;
+  letter-spacing: 0.04em;
+  color: var(--yellow);
+  font-weight: 400;
+}
+
+#t-ground-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 6px 0 2px;
+}
+
+.ground-saw .pics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 4px 0 6px;
+}
+
+.ground-saw canvas {
+  width: 96px;
+  height: 54px;
+  image-rendering: pixelated;
+  border-radius: 4px;
+}
+
+.drives {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.drives td,
+.drives th {
+  padding: 5px 6px;
+  border-bottom: 1px solid var(--faint);
+  text-align: left;
+}
+
+.drives .good {
+  color: var(--mint);
+}

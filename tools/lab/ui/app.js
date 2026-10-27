@@ -81,6 +81,7 @@ $('packs').addEventListener('click', (e) => {
     if (check.checked) state.checked.add(id);
     else state.checked.delete(id);
     updateTrainButtons();
+    void showGround();
     return;
   }
   const card = e.target.closest('.pack[data-id]');
@@ -555,9 +556,119 @@ function showTrainer() {
   $('t-publish-row').hidden = !builtin;
   $('t-install').hidden = !t || t.ready;
   $('t-install').textContent = t && !t.ready ? `Not set up on this PC yet: ${t.install ?? ''}` : '';
+  $('t-check-hint').textContent =
+    t?.brain === 'nav-camera'
+      ? 'The new camera brain is then cross-checked against the one that drove in the test case: both drive in rooms rebuilt from it, in Isaac Lab.'
+      : 'Every new brain is then cross-checked against the one that failed in the test case (or the shipped one) in MuJoCo, MuJoCo with the randomisation, and Newton.';
   updateTrainButtons();
+  void showGround();
 }
 $('t-trainer').addEventListener('change', showTrainer);
+
+// --- The training ground a test case makes ----------------------------------------------------
+/**
+ * For a trainer that trains on the test case itself (trainers.mjs `ground`): the first ticked test case
+ * rebuilt (tools/train/lib/ground.mjs), drawn from above, and what Pip's camera saw. A running job shows
+ * the ground it was given.
+ */
+async function showGround() {
+  const t = currentTrainer();
+  const running = state.job?.state === 'running' && state.job.ground;
+  if (running) return drawGround(state.job.ground, state.job.groundPictures);
+  const pack = [...state.checked][0];
+  if (!t?.ground || !pack) {
+    $('t-ground').hidden = true;
+    return;
+  }
+  const key = `${pack}|${t.ground}`;
+  if (state.groundKey === key && !$('t-ground').hidden) return;
+  state.groundKey = key;
+  try {
+    const res = await api(`/api/ground?pack=${encodeURIComponent(pack)}&purpose=${t.ground}`);
+    if (state.groundKey === key) drawGround(res.ground, res.pictures);
+  } catch {
+    $('t-ground').hidden = true;
+  }
+}
+
+const GROUND_COLOURS = { step: COLORS.sky, furniture: '#9a9db0', wall: '#d8d2c8', piece: COLORS.orange };
+
+function drawGround(g, pictures) {
+  $('t-ground').hidden = false;
+  $('t-ground-from').textContent = `from test case ${g.pack}${g.playground ? ` (${g.playground})` : ''}`;
+  const [x0, x1, y0, y1] = g.region;
+  const W = 480;
+  const H = 240;
+  const pad = 18;
+  const s = Math.min((W - 2 * pad) / (x1 - x0), (H - 2 * pad) / (y1 - y0));
+  const ox = W / 2 - ((x0 + x1) / 2) * s;
+  const oy = H / 2 + ((y0 + y1) / 2) * s;
+  // The ground's x to the right, its y (Pip's left) up.
+  const X = (x) => +(ox + x * s).toFixed(1);
+  const Y = (y) => +(oy - y * s).toFixed(1);
+  const parts = [`<rect x="${X(x0)}" y="${Y(y1)}" width="${((x1 - x0) * s).toFixed(1)}" height="${((y1 - y0) * s).toFixed(1)}" rx="8" fill="${COLORS.ink2}" />`];
+  const labels = [];
+  for (const o of g.obstacles) {
+    const kind = o.walkable ? 'step' : o.source === 'room' ? (/wall|window|door|art/.test(o.label) ? 'wall' : 'furniture') : 'piece';
+    // Steps in the colours the trainer's terrain gives them (duckstep/ground.py): the dog bed brown.
+    const fill = kind === 'step' && /bed/.test(o.label) ? '#c27a5f' : GROUND_COLOURS[kind];
+    const deg = (-o.yaw * 180) / Math.PI;
+    const at = `translate(${X(o.pos[0])} ${Y(o.pos[1])}) rotate(${deg.toFixed(1)})`;
+    if (o.shape === 'cylinder') parts.push(`<circle cx="${X(o.pos[0])}" cy="${Y(o.pos[1])}" r="${Math.max(2, o.half[0] * s).toFixed(1)}" fill="${fill}" />`);
+    else
+      parts.push(
+        `<rect transform="${at}" x="${(-o.half[0] * s).toFixed(1)}" y="${(-o.half[1] * s).toFixed(1)}" width="${(2 * o.half[0] * s).toFixed(1)}" height="${(2 * o.half[1] * s).toFixed(1)}" rx="3" fill="${fill}" fill-opacity="${kind === 'step' ? 0.85 : 0.9}" />`,
+      );
+    if ((kind === 'step' || kind === 'furniture') && o.half[0] * o.half[1] * s * s > 120) {
+      labels.push(`<text x="${X(o.pos[0])}" y="${Y(o.pos[1]) + 4}" text-anchor="middle" class="gl">${esc(kind === 'step' ? `${Math.round(o.top * 100)} cm ${o.label}` : o.label)}</text>`);
+    }
+  }
+  // Pip's start (and the way it faced), the way to its goal, and where it went wrong.
+  const end = g.goal ?? [g.trouble[0] + 0.6, g.trouble[1]];
+  parts.push(`<line x1="${X(0)}" y1="${Y(0)}" x2="${X(end[0])}" y2="${Y(end[1])}" stroke="${COLORS.dim}" stroke-width="1.5" stroke-dasharray="5 5" />`);
+  if (g.goal) parts.push(`<circle cx="${X(g.goal[0])}" cy="${Y(g.goal[1])}" r="8" fill="none" stroke="${COLORS.mint}" stroke-width="3" />`, `<text x="${X(g.goal[0])}" y="${Y(g.goal[1]) - 13}" text-anchor="middle" class="gl mint">goal</text>`);
+  const tx = X(g.trouble[0]);
+  const ty = Y(g.trouble[1]);
+  parts.push(`<path d="M${tx - 7} ${ty - 7}L${tx + 7} ${ty + 7}M${tx + 7} ${ty - 7}L${tx - 7} ${ty + 7}" stroke="${COLORS.berry}" stroke-width="3.5" stroke-linecap="round" />`);
+  labels.push(`<text x="${tx}" y="${ty + 22}" text-anchor="middle" class="gl berry">${g.reason === 'falls' ? 'fell here' : g.reason === 'stuck' ? 'stuck here' : 'saved here'}</text>`);
+  // The other starts training ducks get (steering: the test case's own start, the stuck pose): small rings.
+  for (const st of (g.starts ?? []).slice(1)) {
+    parts.push(
+      `<line x1="${X(st.x)}" y1="${Y(st.y)}" x2="${X(st.x + 0.16 * Math.cos(st.yaw))}" y2="${Y(st.y + 0.16 * Math.sin(st.yaw))}" stroke="${COLORS.yellow}" stroke-width="2" stroke-linecap="round" />`,
+      `<circle cx="${X(st.x)}" cy="${Y(st.y)}" r="5" fill="none" stroke="${COLORS.yellow}" stroke-width="2" />`,
+    );
+  }
+  const yaw = g.start.yaw;
+  parts.push(
+    `<line x1="${X(0)}" y1="${Y(0)}" x2="${X(0.22 * Math.cos(yaw))}" y2="${Y(0.22 * Math.sin(yaw))}" stroke="${COLORS.yellow}" stroke-width="3" stroke-linecap="round" />`,
+    `<circle cx="${X(0)}" cy="${Y(0)}" r="7" fill="${COLORS.yellow}" />`,
+  );
+  labels.push(`<text x="${X(0)}" y="${Y(0) - 13}" text-anchor="middle" class="gl yellow">Pip</text>`);
+  $('t-ground-svg').innerHTML = `<style>.gl{font:600 12px system-ui,sans-serif;fill:${COLORS.ink};paint-order:stroke;stroke:${COLORS.cream};stroke-width:3px}.gl.mint,.gl.berry,.gl.yellow{fill:${COLORS.cream};stroke:${COLORS.ink}}</style>${parts.join('')}${labels.join('')}`;
+  $('t-ground-text').textContent =
+    g.purpose === 'nav'
+      ? `${g.summary}. 7 of 10 training rooms rebuild it (turned, the pieces nudged${g.look ? ", painted in the colours Pip's camera saw" : ''}). Pip starts where the drive began${(g.starts?.length ?? 0) > 1 ? ' or where it got into trouble (the rings)' : ''} and is sent to its goal.`
+      : `${g.summary}. Three in five terrain patches are copies of it, Pip starting where it did and walking the way it went, the steps 70% to 120% as tall; the rest are earlier terraces and flat floor, so it keeps what it knew.`;
+  const pics = pictures?.frames ?? [];
+  $('t-ground-saw').hidden = !pics.length;
+  $('t-ground-pics').innerHTML = '';
+  for (const b64 of pics.slice(-8)) {
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const canvas = document.createElement('canvas');
+    canvas.width = pictures.width;
+    canvas.height = pictures.height;
+    const ctx = canvas.getContext('2d');
+    const img = ctx.createImageData(pictures.width, pictures.height);
+    for (let i = 0, j = 0; i < bytes.length; i += 3, j += 4) {
+      img.data[j] = bytes[i];
+      img.data[j + 1] = bytes[i + 1];
+      img.data[j + 2] = bytes[i + 2];
+      img.data[j + 3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+    $('t-ground-pics').appendChild(canvas);
+  }
+}
 
 // --- Cross-check ---------------------------------------------------------------------------------
 const ENGINE_TITLES = { mujoco: 'MuJoCo', pollen: 'MuJoCo + randomisation', newton: 'Newton', 'newton-nc': 'Newton (its contacts)', physx: 'PhysX' };
@@ -631,6 +742,26 @@ function renderCrossTable(report) {
     : '';
 }
 
+/** A camera brain's cross-check: each brain driving the test case again, in the app and in Isaac Lab's rebuilt rooms. */
+const DRIVE_ENGINES = { app: 'In the app (its MuJoCo, its camera pictures)', isaaclab: "Isaac Lab, rooms rebuilt from it" };
+function renderDrives(rows, packs) {
+  const name = (r) => (r.role === 'after' ? `new: ${(state.releases?.releases ?? []).find((x) => x.id === r.brain)?.name ?? r.brain.replace(/^[\dT-]{20}/, '')}` : 'the one that got stuck');
+  $('cc-state').textContent = 'the camera brains, on the test case';
+  const engines = [...new Set(rows.map((r) => r.engine))];
+  $('cc-table').innerHTML = `<table class="drives"><tr><th>Where</th><th>Camera brain</th><th>Reached the goal</th><th>Stuck</th><th>Fell</th></tr>${engines
+    .map((e) => {
+      const list = rows.filter((r) => r.engine === e);
+      const best = Math.max(...list.map((r) => r.reached));
+      return list
+        .map(
+          (r, i) =>
+            `<tr><td>${i ? '' : esc(DRIVE_ENGINES[e] ?? e)}</td><td>${esc(name(r))}</td><td class="${r.reached === best && list.length > 1 && list.some((x) => x.reached < best) ? 'good' : ''}"><b>${r.reached}</b> of ${r.tries}</td><td>${r.stuck}</td><td>${r.falls}</td></tr>`,
+        )
+        .join('');
+    })
+    .join('')}</table><div class="meta">Test case ${esc(packs[0] ?? '')}: its drive from where it began to its goal, the same start for each brain</div>`;
+}
+
 function onCrossCheck(msg) {
   if (!state.crossJob || state.crossJob.id !== msg.id) state.crossJob = { id: msg.id, state: 'running', rows: [] };
   if (msg.event?.type === 'result') {
@@ -669,12 +800,29 @@ function onJob(msg) {
   if (msg.event) {
     const e = msg.event;
     if (e.type === 'status') log(esc(e.message));
+    if (e.type === 'status' && /both camera brains drive/.test(e.message)) {
+      // A camera brain's own cross-check starts: the card waits for its drives, not the last walking table.
+      job.drives = [];
+      $('cc-state').textContent = 'the camera brains, on the test case';
+      $('cc-table').innerHTML = '<div class="meta">Driving the test case again with both camera brains: in the app, then in Isaac Lab...</div>';
+    }
     if (e.type === 'log') log(`<span class="meta">${esc(e.line)}</span>`);
     if (e.type === 'progress') {
       job.of = e.of;
       job.progress = e.iteration;
     }
     if (e.type === 'metric') (job.metrics ??= []).push(e);
+    if (e.type === 'ground') {
+      // The trainer's ground, built from the test case: drawn on the card while it trains.
+      job.ground = e.ground;
+      job.groundPictures = e.pictures;
+      drawGround(e.ground, e.pictures);
+    }
+    if (e.type === 'drives') {
+      // The camera brain's cross-check: drives in rooms rebuilt from the test case.
+      job.drives = [...(job.drives ?? []), e];
+      renderDrives(job.drives, job.packs ?? []);
+    }
     if (e.type === 'crosscheck' && e.kind === 'result') {
       const what = e.fallRate !== undefined ? `${pct(e.fallRate)} of ${e.seeds} randomised runs fell` : `${e.walkedM.toFixed(2)} m, ${e.fellAt === null ? 'stayed up' : `tipped at ${e.fellAt.toFixed(1)} s`}`;
       log(`<span class="meta">cross-check ${esc(ENGINE_TITLES[e.engine] ?? e.engine)}, ${esc(e.brain === 'shipped' ? 'shipped' : 'new brain')}, ${esc(e.pack)}: ${what}</span>`);
@@ -883,10 +1031,14 @@ function crossLine(r) {
   if (!r.crossCheck?.length) return '';
   const engines = [...new Set(r.crossCheck.map((x) => x.engine))];
   const of = (brain, engine) => r.crossCheck.find((x) => x.engine === engine && x.brain === brain);
+  // The brain it is checked against: the one that failed in the test case (the shipped one, or a release).
+  const other = r.crossCheck.find((x) => x.brain !== r.id)?.brain ?? 'shipped';
   const parts = engines.map((e) => {
-    const a = of('shipped', e);
+    const a = of(other, e);
     const b = of(r.id, e);
     if (!a || !b) return '';
+    // A camera brain's drives in the test case's rebuilt room.
+    if (b.tries) return `${e === 'app' ? 'In the app' : 'Isaac Lab rooms'}: reached the goal ${a.reached} to <b${b.reached < a.reached ? ' class="bad"' : ''}>${b.reached}</b> of ${b.tries}`;
     return `${esc(ENGINE_TITLES[e] ?? e)} ${pct(a.falls)} to <b${worse(b.falls, a.falls)}>${pct(b.falls)}</b> fell`;
   });
   return `<div class="nums">cross-check: ${parts.filter(Boolean).join(' | ')}</div>`;

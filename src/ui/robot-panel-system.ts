@@ -822,14 +822,24 @@ export class RobotPanelSystem extends createSystem({}) {
       // A fine-tune measures its own falls; another trainer's release has the cross-check's (randomised MuJoCo).
       let before = offer.baselineFallRate;
       let after = offer.fallRate;
-      if (after === null && offer.crossCheck) {
-        const row = (brain: string) => offer.crossCheck?.find((r) => r.engine === 'pollen' && r.brain === brain) ?? null;
-        before = row('shipped')?.falls ?? null;
-        after = row(offer.id)?.falls ?? null;
+      // A camera brain: how often it got to the goal in the test case's room (Isaac Lab), before and after.
+      // In the app if it was replayed there, else in Isaac Lab's rebuilt rooms.
+      const all = offer.brains?.includes('nav-camera') ? offer.crossCheck?.filter((r) => r.tries) : null;
+      const drives = all?.some((r) => r.engine === 'app') ? all.filter((r) => r.engine === 'app') : all;
+      if (after === null && offer.crossCheck && !drives) {
+        // Against the brain that failed in the test case: the shipped one, or an earlier release.
+        before = offer.crossCheck.find((r) => r.engine === 'pollen' && r.brain !== offer.id)?.falls ?? null;
+        after = offer.crossCheck.find((r) => r.engine === 'pollen' && r.brain === offer.id)?.falls ?? null;
       }
+      const old = drives?.find((r) => r.brain !== offer.id);
+      const fresh = drives?.find((r) => r.brain === offer.id);
       this.text(
         'rp-offer-note',
-        inbox?.busy ? inbox.status : `${offer.name}: falls ${pct(before)} to ${pct(after)} on ${offer.packs} of your scenes`,
+        inbox?.busy
+          ? inbox.status
+          : old && fresh
+            ? `${offer.name}: reached the goal ${old.reached} to ${fresh.reached} of ${fresh.tries} times in your test case`
+            : `${offer.name}: falls ${pct(before)} to ${pct(after)} on ${offer.packs} of your scenes`,
       );
     }
     const current = inbox?.current ?? null;
